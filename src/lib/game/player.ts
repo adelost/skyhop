@@ -171,15 +171,15 @@ export class Player {
 			}
 		}
 
-		// Variable jump height (release early = cut). Only for normal/double/triple.
+		// Variable jump height (M64 style). When jump button is NOT held during ascent,
+		// gravity is multiplied so the jump cuts short. Only applies to normal/double/triple.
 		const cuttable =
 			this.state === 'airborne' &&
 			(this.jumpChain === 1 || this.jumpChain === 2 || this.jumpChain === 3);
-		if (!input.jumpHeld && this.velocity.y > 0 && cuttable) {
-			this.velocity.y *= config.jumpCut;
-		}
+		const cutActive = cuttable && !input.jumpHeld && this.velocity.y > 0;
+		const gravMult = cutActive ? config.jumpAscentCutMult : 1;
 
-		this.velocity.y += config.gravity * dt;
+		this.velocity.y += config.gravity * gravMult * dt;
 		if (this.velocity.y < -config.terminalVel) this.velocity.y = -config.terminalVel;
 
 		const desired = { x: this.velocity.x * dt, y: this.velocity.y * dt, z: this.velocity.z * dt };

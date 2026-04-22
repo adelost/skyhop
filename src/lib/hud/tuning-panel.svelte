@@ -7,59 +7,68 @@
 	const sliders: SliderDef[] = [
 		{ key: 'moveSpeed', min: 1, max: 20, step: 0.1 },
 		{ key: 'accel', min: 5, max: 200, step: 1 },
-		{ key: 'decel', min: 5, max: 200, step: 1 },
+		{ key: 'decel', min: 1, max: 100, step: 1 },
 		{ key: 'airControl', min: 0, max: 1, step: 0.05 },
 		{ key: 'jumpVel', min: 3, max: 25, step: 0.1 },
-		{ key: 'jumpCut', min: 0, max: 1, step: 0.05 },
+		{ key: 'jumpAscentCutMult', min: 1, max: 10, step: 0.25 },
 		{ key: 'gravity', min: -80, max: -5, step: 0.5 },
-		{ key: 'terminalVel', min: 10, max: 100, step: 1 },
+		{ key: 'terminalVel', min: 10, max: 100, step: 0.5 },
 		{ key: 'coyoteMs', min: 0, max: 300, step: 10 },
 		{ key: 'bufferMs', min: 0, max: 300, step: 10 },
-		{ key: 'slopeSlideAngleDeg', min: 20, max: 80, step: 1 },
+		{ key: 'slopeSlideAngleDeg', min: 10, max: 80, step: 1 },
 		{ key: 'slopeBoost', min: 0, max: 20, step: 0.5 },
-		{ key: 'doubleJumpWindowMs', min: 100, max: 600, step: 10 },
-		{ key: 'doubleJumpVel', min: 5, max: 25, step: 0.1 },
-		{ key: 'tripleJumpVel', min: 5, max: 30, step: 0.1 },
-		{ key: 'longJumpVelY', min: 3, max: 15, step: 0.1 },
-		{ key: 'longJumpVelXZ', min: 5, max: 25, step: 0.1 },
-		{ key: 'backflipVelY', min: 5, max: 25, step: 0.1 },
-		{ key: 'sideFlipVelY', min: 5, max: 25, step: 0.1 },
-		{ key: 'wallKickVelY', min: 3, max: 20, step: 0.1 },
+		{ key: 'doubleJumpWindowMs', min: 50, max: 600, step: 10 },
+		{ key: 'doubleJumpVel', min: 5, max: 30, step: 0.1 },
+		{ key: 'tripleJumpVel', min: 5, max: 40, step: 0.1 },
+		{ key: 'longJumpVelY', min: 3, max: 20, step: 0.1 },
+		{ key: 'longJumpVelXZ', min: 5, max: 30, step: 0.1 },
+		{ key: 'backflipVelY', min: 5, max: 30, step: 0.1 },
+		{ key: 'sideFlipVelY', min: 5, max: 30, step: 0.1 },
+		{ key: 'wallKickVelY', min: 3, max: 30, step: 0.1 },
 		{ key: 'wallKickVelXZ', min: 3, max: 20, step: 0.1 },
+		{ key: 'wallStickMs', min: 50, max: 400, step: 10 },
 		{ key: 'groundPoundVel', min: -50, max: -5, step: 0.5 },
 		{ key: 'groundPoundBounce', min: 0, max: 20, step: 0.5 },
 		{ key: 'diveVelY', min: 0, max: 10, step: 0.1 },
-		{ key: 'diveVelXZ', min: 3, max: 25, step: 0.1 }
+		{ key: 'diveVelXZ', min: 3, max: 25, step: 0.1 },
+		{ key: 'camDistance', min: 4, max: 20, step: 0.5 },
+		{ key: 'camHeight', min: 0, max: 10, step: 0.25 },
+		{ key: 'camYawSensitivity', min: 0.001, max: 0.02, step: 0.001 }
 	];
 
 	function reset() {
-		config.moveSpeed = 6;
-		config.accel = 50;
-		config.decel = 40;
+		// Defaults — matches Super Mario 64 decomp values
+		config.moveSpeed = 9.6;
+		config.accel = 40;
+		config.decel = 9;
 		config.airControl = 0.3;
-		config.jumpVel = 10;
-		config.jumpCut = 0.45;
-		config.gravity = -30;
-		config.terminalVel = 40;
-		config.coyoteMs = 120;
-		config.bufferMs = 120;
-		config.slopeSlideAngleDeg = 38;
+		config.jumpVel = 12.6;
+		config.jumpAscentCutMult = 4;
+		config.gravity = -36;
+		config.terminalVel = 22.5;
+		config.coyoteMs = 80;
+		config.bufferMs = 80;
+		config.slopeSlideAngleDeg = 20;
 		config.slopeBoost = 5;
-		config.doubleJumpWindowMs = 300;
-		config.doubleJumpVel = 12;
-		config.tripleJumpVel = 14;
-		config.longJumpVelY = 7;
-		config.longJumpVelXZ = 14;
-		config.backflipVelY = 14;
-		config.backflipVelXZ = -6;
-		config.sideFlipVelY = 13;
-		config.wallKickVelY = 11;
-		config.wallKickVelXZ = 8;
-		config.wallStickMs = 200;
-		config.groundPoundVel = -25;
-		config.groundPoundBounce = 6;
-		config.diveVelY = 3;
-		config.diveVelXZ = 12;
+		config.iceFriction = 0.2;
+		config.doubleJumpWindowMs = 167;
+		config.doubleJumpVel = 15.6;
+		config.tripleJumpVel = 20.7;
+		config.longJumpVelY = 9;
+		config.longJumpVelXZ = 14.4;
+		config.backflipVelY = 18.6;
+		config.backflipVelXZ = -4.8;
+		config.sideFlipVelY = 18.6;
+		config.wallKickVelY = 18.6;
+		config.wallKickVelXZ = 7.2;
+		config.wallStickMs = 167;
+		config.groundPoundVel = -15;
+		config.groundPoundBounce = 0;
+		config.diveVelY = 0;
+		config.diveVelXZ = 14.4;
+		config.camYawSensitivity = 0.006;
+		config.camDistance = 10;
+		config.camHeight = 2.5;
 	}
 </script>
 
