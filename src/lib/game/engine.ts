@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { createPhysics, type Physics } from './physics';
 import { Input } from './input';
-import { buildWorld } from './world';
-import { Player } from './player';
+import { buildWorld, updateMovingPlatforms, type MovingPlatform } from './world';
+import { Player, type DebugInfo } from './player';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 5;
@@ -14,11 +14,15 @@ export class Game {
 	private physics!: Physics;
 	private player!: Player;
 	private input = new Input();
+	private movingPlatforms: MovingPlatform[] = [];
 
 	private running = false;
 	private accumulator = 0;
 	private lastTime = 0;
 	private rafId = 0;
+	private simTime = 0;
+	private fpsSamples: number[] = [];
+	private lastFps = 60;
 
 	private cameraTarget = new THREE.Vector3();
 	private cameraOffset = new THREE.Vector3(0, 4, 8);
@@ -35,7 +39,7 @@ export class Game {
 
 		this.scene = new THREE.Scene();
 		this.scene.background = new THREE.Color(0x6fb8e0);
-		this.scene.fog = new THREE.Fog(0x6fb8e0, 25, 80);
+		this.scene.fog = new THREE.Fog(0x6fb8e0, 35, 100);
 
 		this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
 
@@ -48,7 +52,8 @@ export class Game {
 
 	async init(): Promise<void> {
 		this.physics = await createPhysics();
-		buildWorld(this.scene, this.physics);
+		const result = buildWorld(this.scene, this.physics);
+		this.movingPlatforms = result.moving;
 		this.player = new Player(this.scene, this.physics, new THREE.Vector3(0, 2, 0));
 		this.input.attach();
 		this.onResize();
@@ -80,6 +85,14 @@ export class Game {
 		return this.input;
 	}
 
+	respawn(): void {
+		this.player?.respawn();
+	}
+
+	getDebugInfo(): DebugInfo & { fps: number } {
+		return { ...this.player.debug, fps: this.lastFps };
+	}
+
 	private loop = (): void => {
 		if (!this.running) return;
 		this.rafId = requestAnimationFrame(this.loop);
@@ -90,8 +103,16 @@ export class Game {
 		if (dt > 0.25) dt = 0.25;
 		this.accumulator += dt;
 
+		// FPS (rolling 60 samples)
+		this.fpsSamples.push(dt);
+		if (this.fpsSamples.length > 60) this.fpsSamples.shift();
+		const avg = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
+		this.lastFps = Math.round(1 / avg);
+
 		let steps = 0;
 		while (this.accumulator >= FIXED_DT && steps < MAX_STEPS) {
+			this.simTime += FIXED_DT;
+			updateMovingPlatforms(this.movingPlatforms, this.physics, this.simTime);
 			const snap = this.input.sample();
 			this.player.step(FIXED_DT, snap, this.physics);
 			this.physics.world.step();

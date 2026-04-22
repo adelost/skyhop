@@ -1,0 +1,33 @@
+export const config = $state({
+	moveSpeed: 6,
+	accel: 50,
+	decel: 40,
+	airControl: 0.3,
+	jumpVel: 10,
+	jumpCut: 0.45,
+	gravity: -30,
+	terminalVel: 40,
+	coyoteMs: 120,
+	bufferMs: 120,
+	slopeSlideAngleDeg: 38,
+	slopeBoost: 5,
+	iceFriction: 0.02,
+	grassFriction: 1.0,
+	doubleJumpWindowMs: 300,
+	doubleJumpVel: 12,
+	tripleJumpVel: 14,
+	longJumpVelY: 7,
+	longJumpVelXZ: 14,
+	backflipVelY: 14,
+	backflipVelXZ: -6,
+	sideFlipVelY: 13,
+	wallKickVelY: 11,
+	wallKickVelXZ: 8,
+	wallStickMs: 200,
+	groundPoundVel: -25,
+	groundPoundBounce: 6,
+	diveVelY: 3,
+	diveVelXZ: 12
+});
+
+export type Config = typeof config;

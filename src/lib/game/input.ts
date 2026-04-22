@@ -3,16 +3,25 @@ export type InputState = {
 	moveZ: number;
 	jumpPressed: boolean;
 	jumpHeld: boolean;
+	crouchHeld: boolean;
+	crouchPressed: boolean;
+	actionPressed: boolean;
 };
 
 export class Input {
 	private keys = new Set<string>();
 	private jumpQueued = false;
 	private jumpHeld = false;
+	private crouchQueued = false;
+	private crouchHeld = false;
+	private actionQueued = false;
 	private touchMoveX = 0;
 	private touchMoveZ = 0;
 	private touchJumpPressed = false;
 	private touchJumpHeld = false;
+	private touchCrouchHeld = false;
+	private touchCrouchPressed = false;
+	private touchActionPressed = false;
 	private cleanup: Array<() => void> = [];
 
 	attach(): void {
@@ -23,12 +32,18 @@ export class Input {
 				this.jumpQueued = true;
 				this.jumpHeld = true;
 			}
+			if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+				this.crouchQueued = true;
+				this.crouchHeld = true;
+			}
+			if (e.code === 'KeyE') {
+				this.actionQueued = true;
+			}
 		};
 		const onKeyUp = (e: KeyboardEvent) => {
 			this.keys.delete(e.code);
-			if (e.code === 'Space') {
-				this.jumpHeld = false;
-			}
+			if (e.code === 'Space') this.jumpHeld = false;
+			if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.crouchHeld = false;
 		};
 		window.addEventListener('keydown', onKeyDown);
 		window.addEventListener('keyup', onKeyUp);
@@ -55,6 +70,19 @@ export class Input {
 		this.touchJumpHeld = false;
 	}
 
+	pressTouchCrouch(): void {
+		this.touchCrouchPressed = true;
+		this.touchCrouchHeld = true;
+	}
+
+	releaseTouchCrouch(): void {
+		this.touchCrouchHeld = false;
+	}
+
+	pressTouchAction(): void {
+		this.touchActionPressed = true;
+	}
+
 	sample(): InputState {
 		let mx = 0;
 		let mz = 0;
@@ -73,14 +101,23 @@ export class Input {
 		}
 
 		const jumpPressed = this.jumpQueued || this.touchJumpPressed;
+		const crouchPressed = this.crouchQueued || this.touchCrouchPressed;
+		const actionPressed = this.actionQueued || this.touchActionPressed;
 		this.jumpQueued = false;
+		this.crouchQueued = false;
+		this.actionQueued = false;
 		this.touchJumpPressed = false;
+		this.touchCrouchPressed = false;
+		this.touchActionPressed = false;
 
 		return {
 			moveX: mx,
 			moveZ: mz,
 			jumpPressed,
-			jumpHeld: this.jumpHeld || this.touchJumpHeld
+			jumpHeld: this.jumpHeld || this.touchJumpHeld,
+			crouchHeld: this.crouchHeld || this.touchCrouchHeld,
+			crouchPressed,
+			actionPressed
 		};
 	}
 }
