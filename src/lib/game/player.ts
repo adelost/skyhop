@@ -63,6 +63,11 @@ export class Player {
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	private ledgeGrabCooldown = 0;
 
+	// Visual state
+	private pitchAngle = 0; // accumulated flip rotation (radians)
+	private yawSpin = 0; // extra yaw for side-flip pirouette
+	private crouching = false;
+
 	private startPos: THREE.Vector3;
 
 	constructor(scene: THREE.Scene, physics: Physics, spawn: THREE.Vector3) {
@@ -122,6 +127,9 @@ export class Player {
 	}
 
 	step(dt: number, input: InputState, physics: Physics): void {
+		// Track crouch for visual purposes (outlives input frame)
+		this.crouching = input.crouchHeld;
+
 		// Query slope/surface FIRST so this frame's movement knows about it.
 		this.surface = this.queryGroundSurface(physics);
 		const ny = Math.max(-1, Math.min(1, this.slopeNormal.y));
@@ -388,8 +396,8 @@ export class Player {
 
 		if (next.y < -20) this.respawn();
 
-		// Smooth facing rotation (skip during skid = frozen, then snap to target after skid ends)
-		this.updateFacingRotation(dt);
+		// All visual state (rotation, scale, pose)
+		this.updateVisuals(dt);
 	}
 
 	private handleLedgeHang(input: InputState, dt: number): void {
@@ -430,7 +438,7 @@ export class Player {
 			this.ledgePos = null;
 			this.ledgeGrabCooldown = 0.3;
 		}
-		this.updateFacingRotation(dt);
+		this.updateVisuals(dt);
 	}
 
 	private tryLedgeGrab(physics: Physics): { x: number; y: number; z: number } | null {
@@ -514,15 +522,70 @@ export class Player {
 		};
 	}
 
-	private updateFacingRotation(dt: number): void {
-		// During skid, freeze rotation until skid ends
-		if (this.state === 'skid') {
-			this.mesh.rotation.y = this.facingYaw;
-			return;
+	private updateVisuals(dt: number): void {
+		// Update base facing yaw (skip lerp during skid = freeze)
+		if (this.state !== 'skid' && this.state !== 'ledge_hang') {
+			const step = config.rotationSpeed * dt;
+			this.facingYaw = lerpAngle(this.facingYaw, this.targetYaw, step);
 		}
-		const step = config.rotationSpeed * dt;
-		this.facingYaw = lerpAngle(this.facingYaw, this.targetYaw, step);
-		this.mesh.rotation.y = this.facingYaw;
+
+		// Decide pitch & yaw-spin based on state
+		let pitch = 0;
+		let yaw = this.facingYaw;
+
+		if (this.state === 'long_jump' || this.state === 'dive') {
+			// Body horizontal, nose forward-down
+			pitch = Math.PI / 2;
+			// Ease pitch toward target
+			this.pitchAngle = lerpToward(this.pitchAngle, pitch, 10 * dt);
+			pitch = this.pitchAngle;
+		} else if (this.state === 'backflip') {
+			// Backward somersault, accumulate
+			this.pitchAngle -= 8 * dt;
+			pitch = this.pitchAngle;
+		} else if (this.state === 'side_flip') {
+			// Yaw pirouette + subtle forward tumble
+			this.yawSpin += 10 * dt;
+			this.pitchAngle += 4 * dt;
+			pitch = this.pitchAngle;
+			yaw = this.facingYaw + this.yawSpin;
+		} else if (this.state === 'ground_pound') {
+			// Fast forward tumble on way down
+			this.pitchAngle += 18 * dt;
+			pitch = this.pitchAngle;
+		} else if (this.state === 'airborne' && this.jumpChain === 3) {
+			// Triple jump → forward somersault
+			this.pitchAngle += 6.5 * dt;
+			pitch = this.pitchAngle;
+		} else if (this.state === 'wall_slide' && this.wallNormal) {
+			// Nose points AWAY from wall (belly on wall, looking outward).
+			yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
+			this.facingYaw = yaw;
+			pitch = -Math.PI / 10; // slight back-lean
+			this.pitchAngle = 0;
+		} else if (this.state === 'ledge_hang') {
+			// Hang: slight forward lean, face the wall
+			if (this.wallNormal) {
+				yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
+				this.facingYaw = yaw;
+			}
+			pitch = -Math.PI / 8;
+			this.pitchAngle = 0;
+		} else {
+			// Grounded or plain airborne: reset accumulated flip rotation
+			this.pitchAngle = lerpToward(this.pitchAngle, 0, 12 * dt);
+			this.yawSpin = lerpToward(this.yawSpin, 0, 8 * dt);
+			pitch = this.pitchAngle;
+		}
+
+		// Apply rotation: YXZ order so pitch is around local X after yaw
+		this.mesh.rotation.set(pitch, yaw, 0, 'YXZ');
+
+		// Crouch scale (grounded + crouch held, or explicit crouch slide)
+		const shouldCrouchScale =
+			this.crouching && (this.grounded || this.state === 'crouch_slide');
+		const targetScaleY = shouldCrouchScale ? 0.55 : 1;
+		this.mesh.scale.y = lerpToward(this.mesh.scale.y, targetScaleY, 15 * dt);
 	}
 
 	private queryGroundSurface(physics: Physics): string {
@@ -767,6 +830,12 @@ function approach(current: number, target: number, step: number): number {
 	if (current < target) return Math.min(current + step, target);
 	if (current > target) return Math.max(current - step, target);
 	return current;
+}
+
+function lerpToward(current: number, target: number, step: number): number {
+	const d = target - current;
+	if (Math.abs(d) <= step) return target;
+	return current + Math.sign(d) * step;
 }
 
 function normalizeAngle(a: number): number {
