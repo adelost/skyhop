@@ -116,7 +116,9 @@
 
 <div class="hud">
 	<div class="title">skyhop</div>
-	<div class="hint">WASD · space jump · shift crouch · E action · T tune · R respawn</div>
+	<div class="hint">
+		WASD · space jump · shift+jump long/back/side · E dive · shift tap pound · T tune · R respawn
+	</div>
 </div>
 
 {#if game}

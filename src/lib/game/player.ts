@@ -40,9 +40,13 @@ export class Player {
 	private jumpBufferT = 999;
 	private timeSinceLanding = 999;
 	private jumpChain = 0; // 0=none, 1=single, 2=double, 3=triple
+	private chainOnLanding = 0; // jumpChain at moment of last landing
 	private state: PlayerState = 'airborne';
 	private surface = 'air';
 	private slopeNormal = new THREE.Vector3(0, 1, 0);
+	private facing = new THREE.Vector3(0, 0, -1); // last non-zero movement dir
+	private wallNormal: { x: number; z: number } | null = null;
+	private timeSinceWall = 999;
 	private startPos: THREE.Vector3;
 
 	constructor(scene: THREE.Scene, physics: Physics, spawn: THREE.Vector3) {
@@ -91,8 +95,17 @@ export class Player {
 		else groundRate = onIce ? config.decel * config.iceFriction : config.decel;
 		const accelRate = this.grounded ? groundRate : config.accel * config.airControl;
 
-		this.velocity.x = approach(this.velocity.x, targetX, accelRate * dt);
-		this.velocity.z = approach(this.velocity.z, targetZ, accelRate * dt);
+		// During special-air states momentum is locked (jumpers keep their impulse)
+		const momentumLocked =
+			!this.grounded &&
+			(this.state === 'long_jump' ||
+				this.state === 'side_flip' ||
+				this.state === 'dive' ||
+				this.state === 'ground_pound');
+		if (!momentumLocked) {
+			this.velocity.x = approach(this.velocity.x, targetX, accelRate * dt);
+			this.velocity.z = approach(this.velocity.z, targetZ, accelRate * dt);
+		}
 
 		this.timeSinceGrounded += dt;
 		if (this.grounded) {
@@ -100,25 +113,59 @@ export class Player {
 			this.timeSinceLanding += dt;
 		}
 
+		// Track facing from velocity (ground-plane)
+		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+		if (horizSpeed > 0.5) {
+			this.facing.set(this.velocity.x, 0, this.velocity.z).normalize();
+		}
+
 		if (input.jumpPressed) this.jumpBufferT = 0;
 		else this.jumpBufferT += dt;
 
 		const coyoteSec = config.coyoteMs / 1000;
 		const bufferSec = config.bufferMs / 1000;
-		const canJump = this.timeSinceGrounded <= coyoteSec && this.jumpBufferT <= bufferSec;
+		const wallStickSec = config.wallStickMs / 1000;
+		const canGroundJump = this.timeSinceGrounded <= coyoteSec && this.jumpBufferT <= bufferSec;
+		const canWallKick =
+			!this.grounded &&
+			!!this.wallNormal &&
+			this.timeSinceWall <= wallStickSec &&
+			this.jumpBufferT <= bufferSec;
 
-		if (canJump) {
-			this.velocity.y = config.jumpVel;
-			this.timeSinceGrounded = 999;
-			this.jumpBufferT = 999;
-			this.grounded = false;
-			this.state = 'airborne';
-			this.jumpChain = 1;
-			this.timeSinceLanding = 999;
+		if (canWallKick) {
+			this.executeWallKick();
+		} else if (canGroundJump) {
+			this.executeJump(input, horizSpeed);
 		}
 
-		// Variable jump height (release early = cut)
-		if (!input.jumpHeld && this.velocity.y > 0) {
+		// Aerial action moves (ground pound / dive). Only when airborne and not mid-special.
+		if (!this.grounded && this.state !== 'ground_pound' && this.state !== 'dive') {
+			const triggerGP =
+				input.crouchPressed || (input.actionPressed && horizSpeed < 2.5);
+			const triggerDive = input.actionPressed && horizSpeed >= 2.5;
+			if (triggerGP) {
+				this.velocity.x = 0;
+				this.velocity.z = 0;
+				this.velocity.y = config.groundPoundVel;
+				this.state = 'ground_pound';
+				this.jumpChain = 0;
+			} else if (triggerDive) {
+				const mag = Math.max(horizSpeed, 1);
+				const dx = this.velocity.x / mag;
+				const dz = this.velocity.z / mag;
+				this.velocity.x = dx * config.diveVelXZ;
+				this.velocity.z = dz * config.diveVelXZ;
+				this.velocity.y = config.diveVelY;
+				this.state = 'dive';
+				this.jumpChain = 0;
+			}
+		}
+
+		// Variable jump height (release early = cut). Only for normal/double/triple.
+		const cuttable =
+			this.state === 'airborne' &&
+			(this.jumpChain === 1 || this.jumpChain === 2 || this.jumpChain === 3);
+		if (!input.jumpHeld && this.velocity.y > 0 && cuttable) {
 			this.velocity.y *= config.jumpCut;
 		}
 
@@ -131,11 +178,24 @@ export class Player {
 		const wasGrounded = this.grounded;
 		this.grounded = this.controller.computedGrounded();
 		if (this.grounded) {
-			if (this.velocity.y < 0) this.velocity.y = 0;
 			if (!wasGrounded) {
+				// Landing: capture pre-land state for bounces
+				if (this.state === 'ground_pound') {
+					this.velocity.y = config.groundPoundBounce;
+				} else if (this.velocity.y < 0) {
+					this.velocity.y = 0;
+				}
+				// Dive lands: skid — reduce XZ by half, stay grounded
+				if (this.state === 'dive') {
+					this.velocity.x *= 0.3;
+					this.velocity.z *= 0.3;
+				}
 				this.timeSinceLanding = 0;
+				this.chainOnLanding = this.jumpChain;
 				this.jumpChain = 0;
 				this.state = 'grounded';
+			} else if (this.velocity.y < 0) {
+				this.velocity.y = 0;
 			}
 		} else if (wasGrounded) {
 			this.state = 'airborne';
@@ -146,6 +206,19 @@ export class Player {
 
 		// Slope momentum
 		this.applySlopePhysics(dt);
+
+		// Wall detection (horizontal raycasts)
+		this.timeSinceWall += dt;
+		const wallHit = this.grounded ? null : this.queryWallContact(physics);
+		if (wallHit) {
+			this.wallNormal = wallHit;
+			this.timeSinceWall = 0;
+			if (this.velocity.y < 0 && this.state !== 'ground_pound') {
+				this.state = 'wall_slide';
+				// Dampen fall while sliding
+				this.velocity.y = Math.max(this.velocity.y, -3);
+			}
+		}
 
 		const corrected = this.controller.computedMovement();
 		const pos = this.body.translation();
@@ -202,6 +275,104 @@ export class Player {
 				this.velocity.z += horizFallDir.z * boost;
 			}
 		}
+	}
+
+	private queryWallContact(physics: Physics): { x: number; z: number } | null {
+		const { world, rapier } = physics;
+		const origin = this.body.translation();
+		const reach = RADIUS + 0.15;
+		const dirs: [number, number][] = [
+			[1, 0],
+			[-1, 0],
+			[0, 1],
+			[0, -1]
+		];
+		for (const [dx, dz] of dirs) {
+			const ray = new rapier.Ray(
+				{ x: origin.x, y: origin.y, z: origin.z },
+				{ x: dx, y: 0, z: dz }
+			);
+			const hit = world.castRayAndGetNormal(ray, reach, true, undefined, undefined, this.collider);
+			if (hit && Math.abs(hit.normal.y) < 0.5) {
+				return { x: hit.normal.x, z: hit.normal.z };
+			}
+		}
+		return null;
+	}
+
+	private executeWallKick(): void {
+		if (!this.wallNormal) return;
+		this.velocity.y = config.wallKickVelY;
+		this.velocity.x = this.wallNormal.x * config.wallKickVelXZ;
+		this.velocity.z = this.wallNormal.z * config.wallKickVelXZ;
+		this.state = 'airborne';
+		this.jumpChain = 1;
+		this.jumpBufferT = 999;
+		this.wallNormal = null;
+		this.timeSinceWall = 999;
+	}
+
+	private executeJump(input: InputState, horizSpeed: number): void {
+		this.timeSinceGrounded = 999;
+		this.jumpBufferT = 999;
+		this.grounded = false;
+
+		const inputMag = Math.hypot(input.moveX, input.moveZ);
+		const inputDirX = inputMag > 0.3 ? input.moveX / inputMag : 0;
+		const inputDirZ = inputMag > 0.3 ? input.moveZ / inputMag : 0;
+
+		// Is input reversed vs current velocity direction? (for side flip)
+		const velDirX = horizSpeed > 0.5 ? this.velocity.x / horizSpeed : 0;
+		const velDirZ = horizSpeed > 0.5 ? this.velocity.z / horizSpeed : 0;
+		const reversed =
+			inputMag > 0.5 && horizSpeed > 0.5 && inputDirX * velDirX + inputDirZ * velDirZ < -0.5;
+
+		const windowSec = config.doubleJumpWindowMs / 1000;
+		const canChain =
+			this.timeSinceLanding <= windowSec && this.chainOnLanding >= 1 && horizSpeed > 2;
+
+		// Priority: long jump > backflip > side flip > chain jump > normal jump
+		if (input.crouchHeld && horizSpeed > 3) {
+			// Long jump: low arc, huge horizontal, preserves direction
+			this.velocity.y = config.longJumpVelY;
+			const dirX = velDirX || inputDirX;
+			const dirZ = velDirZ || inputDirZ;
+			this.velocity.x = dirX * config.longJumpVelXZ;
+			this.velocity.z = dirZ * config.longJumpVelXZ;
+			this.state = 'long_jump';
+			this.jumpChain = 0; // long jump doesn't chain
+		} else if (input.crouchHeld) {
+			// Backflip: high vertical, small backward push from facing
+			this.velocity.y = config.backflipVelY;
+			this.velocity.x = -this.facing.x * Math.abs(config.backflipVelXZ);
+			this.velocity.z = -this.facing.z * Math.abs(config.backflipVelXZ);
+			this.state = 'backflip';
+			this.jumpChain = 0;
+		} else if (reversed && horizSpeed > 3) {
+			// Side flip: flip input direction, medium-high vertical
+			this.velocity.y = config.sideFlipVelY;
+			this.velocity.x = inputDirX * config.longJumpVelXZ * 0.6;
+			this.velocity.z = inputDirZ * config.longJumpVelXZ * 0.6;
+			this.state = 'side_flip';
+			this.jumpChain = 0;
+		} else if (canChain) {
+			// Double or triple jump
+			this.jumpChain = this.chainOnLanding + 1;
+			if (this.jumpChain >= 3) {
+				this.velocity.y = config.tripleJumpVel;
+				this.jumpChain = 3;
+			} else {
+				this.velocity.y = config.doubleJumpVel;
+			}
+			this.state = 'airborne';
+		} else {
+			// Normal jump
+			this.velocity.y = config.jumpVel;
+			this.jumpChain = 1;
+			this.state = 'airborne';
+		}
+
+		this.timeSinceLanding = 999;
 	}
 
 	sync(): void {
