@@ -41,6 +41,10 @@
 		{ key: 'skidDurationMs', min: 0, max: 800, step: 10 },
 		{ key: 'skidVelocityCut', min: 0, max: 1, step: 0.05 },
 		{ key: 'skidLeanDeg', min: 0, max: 60, step: 1 },
+		{ key: 'wallSlidePoseDeg', min: -60, max: 60, step: 1 },
+		{ key: 'ledgePoseDeg', min: -60, max: 60, step: 1 },
+		{ key: 'ledgeShimmySpeed', min: 0, max: 6, step: 0.1 },
+		{ key: 'poseLerpRate', min: 1, max: 30, step: 0.5 },
 		{ key: 'runJumpBonus', min: 0, max: 1, step: 0.05 },
 		{ key: 'runDoubleJumpBonus', min: 0, max: 1, step: 0.05 },
 		{ key: 'wallSlideGravityMult', min: 0, max: 1, step: 0.05 },
@@ -90,8 +94,14 @@
 		config.runJumpBonus = 0.25;
 		config.runDoubleJumpBonus = 0.2;
 		config.wallSlideGravityMult = 0.35;
-		config.ledgeForwardReach = 0.7;
-		config.ledgeUpReach = 0.6;
+		config.ledgeForwardReach = 1.0;
+		config.ledgeUpReach = 1.0;
+		config.ledgeMinFallSpeed = 1;
+		config.ledgeShimmySpeed = 2.0;
+		config.ledgePoseDeg = -30;
+		config.wallSlidePoseDeg = 22;
+		config.poseLerpRate = 8;
+		config.sameWallLockoutMs = 500;
 	}
 </script>
 

@@ -186,7 +186,7 @@ export class Player {
 
 		// Handle ledge-hang as a separate mini state machine.
 		if (this.state === 'ledge_hang') {
-			this.handleLedgeHang(input, dt);
+			this.handleLedgeHang(input, physics, dt);
 			return;
 		}
 		this.ledgeGrabCooldown = Math.max(0, this.ledgeGrabCooldown - dt);
@@ -459,23 +459,49 @@ export class Player {
 		this.updateVisuals(dt);
 	}
 
-	private handleLedgeHang(input: InputState, dt: number): void {
+	private handleLedgeHang(input: InputState, physics: Physics, dt: number): void {
 		if (!this.ledgePos) {
 			this.state = 'airborne';
 			return;
 		}
-		// Keep player pinned at ledge position
+
+		// Cam-relative input for up/down + shimmy intent
+		const cy = Math.cos(input.cameraYaw);
+		const sy = Math.sin(input.cameraYaw);
+		const mx = input.moveX * cy + input.moveZ * sy;
+		const mz = -input.moveX * sy + input.moveZ * cy;
+
+		// Shimmy along ledge tangent (horizontal perpendicular to wall normal)
+		if (this.wallNormal && Math.abs(mx) > 0.3) {
+			const tx = -this.wallNormal.z;
+			const tz = this.wallNormal.x;
+			const proj = mx * tx + mz * tz;
+			const dir = proj !== 0 ? Math.sign(proj) : Math.sign(mx);
+			const step = config.ledgeShimmySpeed * dir * dt;
+			const candidate = {
+				x: this.ledgePos.x + tx * step,
+				y: this.ledgePos.y,
+				z: this.ledgePos.z + tz * step
+			};
+			if (this.verifyLedgeAt(candidate, physics)) {
+				this.ledgePos = candidate;
+			}
+		}
+
+		// Pin to ledge position
 		this.body.setTranslation(this.ledgePos, true);
 		this.velocity.set(0, 0, 0);
 		this.mesh.position.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
 
-		// Up input → pull up (snap player onto ledge top)
-		if (input.moveZ < -0.6) {
-			const facing = new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
+		if (mz < -0.6) {
+			// Pull up: step forward into wall + up by a body height
+			const intoWall = this.wallNormal
+				? new THREE.Vector3(-this.wallNormal.x, 0, -this.wallNormal.z).normalize()
+				: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
 			const up = {
-				x: this.ledgePos.x + facing.x * 0.6,
+				x: this.ledgePos.x + intoWall.x * 0.6,
 				y: this.ledgePos.y + HEIGHT + 0.3,
-				z: this.ledgePos.z + facing.z * 0.6
+				z: this.ledgePos.z + intoWall.z * 0.6
 			};
 			this.body.setTranslation(up, true);
 			this.mesh.position.set(up.x, up.y, up.z);
@@ -484,20 +510,53 @@ export class Player {
 			this.ledgeGrabCooldown = 0.3;
 			haptic(20);
 		} else if (input.jumpPressed) {
-			// Jump off ledge
 			this.velocity.y = config.jumpVel;
 			this.state = 'airborne';
 			this.ledgePos = null;
 			this.ledgeGrabCooldown = 0.3;
 			this.jumpChain = 1;
 			haptic(15);
-		} else if (input.crouchPressed || input.moveZ > 0.6) {
-			// Drop
+		} else if (input.crouchPressed || mz > 0.6) {
 			this.state = 'airborne';
 			this.ledgePos = null;
 			this.ledgeGrabCooldown = 0.3;
 		}
 		this.updateVisuals(dt);
+	}
+
+	private verifyLedgeAt(
+		pos: { x: number; y: number; z: number },
+		physics: Physics
+	): boolean {
+		if (!this.wallNormal) return false;
+		const { world, rapier } = physics;
+		const chestY = pos.y + 0.1;
+		const headY = pos.y + HEIGHT / 2 + config.ledgeUpReach;
+		const fwd = new THREE.Vector3(
+			-this.wallNormal.x,
+			0,
+			-this.wallNormal.z
+		).normalize();
+		const reach = config.ledgeForwardReach + 0.1;
+		const chest = world.castRayAndGetNormal(
+			new rapier.Ray({ x: pos.x, y: chestY, z: pos.z }, { x: fwd.x, y: 0, z: fwd.z }),
+			reach,
+			true,
+			undefined,
+			undefined,
+			this.collider
+		);
+		if (!chest || Math.abs(chest.normal.y) > 0.3) return false;
+		const head = world.castRay(
+			new rapier.Ray({ x: pos.x, y: headY, z: pos.z }, { x: fwd.x, y: 0, z: fwd.z }),
+			reach,
+			true,
+			undefined,
+			undefined,
+			this.collider
+		);
+		if (head) return false;
+		return true;
 	}
 
 	private tryLedgeGrab(physics: Physics): { x: number; y: number; z: number } | null {
@@ -624,18 +683,21 @@ export class Player {
 			this.pitchAngle -= 6.5 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'wall_slide' && this.wallNormal) {
-			// Override LOCAL yaw for this frame's render only. Don't touch
-			// this.facingYaw — camera auto-recenter tracks it and would jitter
-			// toward the wall direction otherwise.
+			// Face into wall (nose at wall). Positive pitch = head tips BACK = away
+			// from wall, legs toward wall. Don't write to this.facingYaw (cam jitter).
 			yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
-			pitch = -Math.PI / 10;
-			this.pitchAngle = 0;
+			const target = (config.wallSlidePoseDeg * Math.PI) / 180;
+			this.pitchAngle = lerpToward(this.pitchAngle, target, config.poseLerpRate * dt);
+			pitch = this.pitchAngle;
 		} else if (this.state === 'ledge_hang') {
 			if (this.wallNormal) {
 				yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
 			}
-			pitch = -Math.PI / 8;
-			this.pitchAngle = 0;
+			// Negative pitch = head tips FORWARD = into wall (hands grabbing ledge),
+			// feet hang below and out. Distinct from wall_slide pose.
+			const target = (config.ledgePoseDeg * Math.PI) / 180;
+			this.pitchAngle = lerpToward(this.pitchAngle, target, config.poseLerpRate * dt);
+			pitch = this.pitchAngle;
 		} else if (this.state === 'skid') {
 			// Brake pose — lean back, feet skidding forward. Visual-only until skid ends.
 			const targetLean = (config.skidLeanDeg * Math.PI) / 180;

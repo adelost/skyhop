@@ -87,6 +87,15 @@ export const config = $state({
 	ledgeForwardReach: 1.0,
 	ledgeUpReach: 1.0,
 	ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
+	ledgeShimmySpeed: 2.0, // m/s along the ledge
+	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
+
+	// Wall-slide pose. Legs-into-wall, head-away: POSITIVE pitch (with nose facing
+	// into wall, positive pitch tips head backward = away from wall).
+	wallSlidePoseDeg: 22,
+
+	// Smoothness of transitions between poses (rad/s toward target).
+	poseLerpRate: 8,
 
 	// Wall-kick lockout: can't re-kick the same wall for this duration.
 	sameWallLockoutMs: 500
