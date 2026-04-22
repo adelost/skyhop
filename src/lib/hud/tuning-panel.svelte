@@ -33,7 +33,15 @@
 		{ key: 'diveVelXZ', min: 3, max: 25, step: 0.1 },
 		{ key: 'camDistance', min: 4, max: 20, step: 0.5 },
 		{ key: 'camHeight', min: 0, max: 10, step: 0.25 },
-		{ key: 'camYawSensitivity', min: 0.001, max: 0.02, step: 0.001 }
+		{ key: 'camYawSensitivity', min: 0.001, max: 0.02, step: 0.001 },
+		{ key: 'camRecenterDelayMs', min: 0, max: 5000, step: 100 },
+		{ key: 'camRecenterSpeed', min: 0, max: 4, step: 0.1 },
+		{ key: 'rotationSpeed', min: 1, max: 30, step: 0.5 },
+		{ key: 'skidDurationMs', min: 0, max: 500, step: 10 },
+		{ key: 'runJumpBonus', min: 0, max: 1, step: 0.05 },
+		{ key: 'runDoubleJumpBonus', min: 0, max: 1, step: 0.05 },
+		{ key: 'wallSlideGravityMult', min: 0, max: 1, step: 0.05 },
+		{ key: 'iceFriction', min: 0.01, max: 1, step: 0.01 }
 	];
 
 	function reset() {
@@ -69,6 +77,16 @@
 		config.camYawSensitivity = 0.006;
 		config.camDistance = 10;
 		config.camHeight = 2.5;
+		config.camRecenterDelayMs = 1500;
+		config.camRecenterSpeed = 0.8;
+		config.rotationSpeed = 12;
+		config.skidReverseDeg = 135;
+		config.skidDurationMs = 150;
+		config.runJumpBonus = 0.25;
+		config.runDoubleJumpBonus = 0.2;
+		config.wallSlideGravityMult = 0.35;
+		config.ledgeForwardReach = 0.7;
+		config.ledgeUpReach = 0.6;
 	}
 </script>
 

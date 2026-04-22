@@ -27,6 +27,7 @@ export class Game {
 
 	private cameraTarget = new THREE.Vector3();
 	private cameraYaw = 0;
+	private timeSinceCamInput = 999;
 
 	constructor(canvas: HTMLCanvasElement) {
 		const isMobile = matchMedia('(pointer: coarse)').matches;
@@ -92,13 +93,16 @@ export class Game {
 
 	addYaw(delta: number): void {
 		this.cameraYaw += delta;
-		// Normalize to (-π, π]
 		if (this.cameraYaw > Math.PI) this.cameraYaw -= 2 * Math.PI;
 		if (this.cameraYaw < -Math.PI) this.cameraYaw += 2 * Math.PI;
+		this.timeSinceCamInput = 0;
 	}
 
 	recenterCam(): void {
-		this.cameraYaw = 0;
+		// Snap behind player's facing direction
+		if (this.player) this.cameraYaw = this.player.facing;
+		else this.cameraYaw = 0;
+		this.timeSinceCamInput = 999; // allow auto-tracking immediately after
 	}
 
 	getDebugInfo(): DebugInfo & { fps: number; comboReady: boolean; wallKickReady: boolean } {
@@ -146,16 +150,48 @@ export class Game {
 	private updateCamera(dt: number): void {
 		const pos = this.player.position;
 		this.cameraTarget.lerp(pos, Math.min(1, dt * 6));
+
+		// Auto-recenter behind player after inactivity + movement
+		this.timeSinceCamInput += dt;
+		const recenterDelay = config.camRecenterDelayMs / 1000;
+		if (this.timeSinceCamInput > recenterDelay && this.player.isMoving) {
+			const targetYaw = this.player.facing;
+			const diff = normalizeAngle(targetYaw - this.cameraYaw);
+			const step = config.camRecenterSpeed * dt;
+			if (Math.abs(diff) <= step) this.cameraYaw = targetYaw;
+			else this.cameraYaw += Math.sign(diff) * step;
+		}
+
 		// Orbit offset around player, rotated by cameraYaw
 		const dist = config.camDistance;
 		const offsetX = Math.sin(this.cameraYaw) * dist;
 		const offsetZ = Math.cos(this.cameraYaw) * dist;
-		const camPos = new THREE.Vector3(
+		let camPos = new THREE.Vector3(
 			this.cameraTarget.x + offsetX,
 			this.cameraTarget.y + config.camHeight,
 			this.cameraTarget.z + offsetZ
 		);
-		this.camera.position.lerp(camPos, Math.min(1, dt * 6));
+
+		// Collision shrink: raycast from target toward camera. Shrink if wall in way.
+		const dir = camPos.clone().sub(this.cameraTarget);
+		const desiredDist = dir.length();
+		if (desiredDist > 0.1) {
+			dir.normalize();
+			const rapier = this.physics.rapier;
+			const ray = new rapier.Ray(
+				{ x: this.cameraTarget.x, y: this.cameraTarget.y, z: this.cameraTarget.z },
+				{ x: dir.x, y: dir.y, z: dir.z }
+			);
+			const hit = this.physics.world.castRay(ray, desiredDist, true);
+			if (hit) {
+				const safeDist = Math.max(hit.timeOfImpact - 0.25, 1.5);
+				camPos = this.cameraTarget
+					.clone()
+					.add(dir.multiplyScalar(safeDist));
+			}
+		}
+
+		this.camera.position.lerp(camPos, Math.min(1, dt * 8));
 		this.camera.lookAt(this.cameraTarget);
 	}
 
@@ -175,3 +211,10 @@ export class Game {
 		}
 	};
 }
+
+function normalizeAngle(a: number): number {
+	while (a > Math.PI) a -= 2 * Math.PI;
+	while (a < -Math.PI) a += 2 * Math.PI;
+	return a;
+}
+

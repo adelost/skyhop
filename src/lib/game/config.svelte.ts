@@ -65,7 +65,25 @@ export const config = $state({
 	// Camera elevation ~2.5 m with slight pitch down.
 	camYawSensitivity: 0.006,
 	camDistance: 10,
-	camHeight: 2.5
+	camHeight: 2.5,
+	camRecenterDelayMs: 1500,
+	camRecenterSpeed: 0.8, // rad/s
+
+	// Character facing rotation (visual). Lerp rad/s and skid-turn duration.
+	rotationSpeed: 12,
+	skidReverseDeg: 135,
+	skidDurationMs: 150,
+
+	// Running-jump height bonus (M64 single = +0.25 × fVel).
+	runJumpBonus: 0.25,
+	runDoubleJumpBonus: 0.2,
+
+	// Wall slide cling: gravity multiplier while hugging wall.
+	wallSlideGravityMult: 0.35,
+
+	// Ledge grab reach (how far forward + up to scan).
+	ledgeForwardReach: 0.7,
+	ledgeUpReach: 0.6
 });
 
 export type Config = typeof config;

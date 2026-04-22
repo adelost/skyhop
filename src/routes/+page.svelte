@@ -172,7 +172,7 @@
 <div class="hud">
 	<div class="title">skyhop</div>
 	<div class="hint">
-		WASD · space jump · shift long/back · E dive/pound · Q/X rotate cam · C recenter · T tune · R respawn
+		WASD · space · shift long/back · shift+run=slide · E dive/pound · up=ledge-pull · Q/X/C cam · T · R
 	</div>
 </div>
 
