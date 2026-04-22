@@ -34,7 +34,8 @@ export type DebugInfo = {
 };
 
 export class Player {
-	readonly mesh: THREE.Group;
+	readonly mesh: THREE.Group; // outer — physics-aligned (position only)
+	private visualGroup: THREE.Group; // inner — rotation + scale + crouch offset
 	private bodyMesh: THREE.Mesh;
 	private noseMesh: THREE.Mesh;
 	private body: RAPIER.RigidBody;
@@ -73,30 +74,32 @@ export class Player {
 	constructor(scene: THREE.Scene, physics: Physics, spawn: THREE.Vector3) {
 		this.startPos = spawn.clone();
 
-		// Visual: group = body (capsule) + nose (cone pointing -Z local)
+		// Outer group = physics position only. Inner visual group handles rotation,
+		// scale, and pivot offsets (so crouch-scale shrinks from feet, not center).
 		this.mesh = new THREE.Group();
+		this.visualGroup = new THREE.Group();
+		this.mesh.add(this.visualGroup);
+
 		const bodyGeo = new THREE.CapsuleGeometry(RADIUS, HEIGHT, 4, 8);
 		const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe03030, roughness: 0.4 });
 		this.bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-		this.mesh.add(this.bodyMesh);
+		this.visualGroup.add(this.bodyMesh);
 
 		const noseGeo = new THREE.ConeGeometry(0.18, 0.4, 10);
-		// Cone apex is at +Y by default. Rotate so apex points -Z (model forward).
 		noseGeo.rotateX(-Math.PI / 2);
 		const noseMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
 		this.noseMesh = new THREE.Mesh(noseGeo, noseMat);
 		this.noseMesh.position.set(0, EYE_HEIGHT, -RADIUS - 0.1);
-		this.mesh.add(this.noseMesh);
+		this.visualGroup.add(this.noseMesh);
 
-		// Small eyes for extra visual feedback (two small dark spheres above nose)
 		const eyeGeo = new THREE.SphereGeometry(0.06, 8, 6);
 		const eyeMat = new THREE.MeshStandardMaterial({ color: 0x221818, roughness: 0.2 });
 		const eL = new THREE.Mesh(eyeGeo, eyeMat);
 		eL.position.set(-0.13, EYE_HEIGHT + 0.1, -RADIUS - 0.05);
 		const eR = new THREE.Mesh(eyeGeo, eyeMat);
 		eR.position.set(0.13, EYE_HEIGHT + 0.1, -RADIUS - 0.05);
-		this.mesh.add(eL);
-		this.mesh.add(eR);
+		this.visualGroup.add(eL);
+		this.visualGroup.add(eR);
 
 		this.mesh.position.copy(spawn);
 		scene.add(this.mesh);
@@ -529,63 +532,76 @@ export class Player {
 			this.facingYaw = lerpAngle(this.facingYaw, this.targetYaw, step);
 		}
 
-		// Decide pitch & yaw-spin based on state
 		let pitch = 0;
 		let yaw = this.facingYaw;
+		let targetScaleY = 1;
 
 		if (this.state === 'long_jump' || this.state === 'dive') {
-			// Body horizontal, nose forward-down
-			pitch = Math.PI / 2;
-			// Ease pitch toward target
-			this.pitchAngle = lerpToward(this.pitchAngle, pitch, 10 * dt);
+			this.pitchAngle = lerpToward(this.pitchAngle, Math.PI / 2, 10 * dt);
 			pitch = this.pitchAngle;
 		} else if (this.state === 'backflip') {
-			// Backward somersault, accumulate
 			this.pitchAngle -= 8 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'side_flip') {
-			// Yaw pirouette + subtle forward tumble
 			this.yawSpin += 10 * dt;
 			this.pitchAngle += 4 * dt;
 			pitch = this.pitchAngle;
 			yaw = this.facingYaw + this.yawSpin;
 		} else if (this.state === 'ground_pound') {
-			// Fast forward tumble on way down
 			this.pitchAngle += 18 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'airborne' && this.jumpChain === 3) {
-			// Triple jump → forward somersault
 			this.pitchAngle += 6.5 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'wall_slide' && this.wallNormal) {
-			// Nose points AWAY from wall (belly on wall, looking outward).
 			yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
 			this.facingYaw = yaw;
-			pitch = -Math.PI / 10; // slight back-lean
+			pitch = -Math.PI / 10;
 			this.pitchAngle = 0;
 		} else if (this.state === 'ledge_hang') {
-			// Hang: slight forward lean, face the wall
 			if (this.wallNormal) {
 				yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
 				this.facingYaw = yaw;
 			}
 			pitch = -Math.PI / 8;
 			this.pitchAngle = 0;
+		} else if (this.state === 'crouch_slide') {
+			// Belly slide — body flat, face-down, nose forward.
+			this.pitchAngle = lerpToward(this.pitchAngle, Math.PI / 2, 12 * dt);
+			pitch = this.pitchAngle;
+			targetScaleY = 0.55;
+		} else if (this.state === 'slope_slide') {
+			// Forced slide on steep slope — sitting pose, leaning back.
+			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 5, 10 * dt);
+			pitch = this.pitchAngle;
+			targetScaleY = 0.7;
 		} else {
-			// Grounded or plain airborne: reset accumulated flip rotation
+			// Grounded or plain airborne — decay flip rotation back to 0.
 			this.pitchAngle = lerpToward(this.pitchAngle, 0, 12 * dt);
 			this.yawSpin = lerpToward(this.yawSpin, 0, 8 * dt);
 			pitch = this.pitchAngle;
 		}
 
-		// Apply rotation: YXZ order so pitch is around local X after yaw
-		this.mesh.rotation.set(pitch, yaw, 0, 'YXZ');
+		// Crouch scale: grounded + crouch held (unless already handled by slide states)
+		if (
+			this.crouching &&
+			this.grounded &&
+			this.state !== 'crouch_slide' &&
+			this.state !== 'slope_slide'
+		) {
+			targetScaleY = 0.55;
+		}
 
-		// Crouch scale (grounded + crouch held, or explicit crouch slide)
-		const shouldCrouchScale =
-			this.crouching && (this.grounded || this.state === 'crouch_slide');
-		const targetScaleY = shouldCrouchScale ? 0.55 : 1;
-		this.mesh.scale.y = lerpToward(this.mesh.scale.y, targetScaleY, 15 * dt);
+		// Apply rotation to inner visualGroup (not outer mesh, so crouch pivot works)
+		this.visualGroup.rotation.set(pitch, yaw, 0, 'YXZ');
+
+		// Smooth scale + pivot-to-feet offset so feet stay on the ground.
+		const currentScaleY = lerpToward(this.visualGroup.scale.y, targetScaleY, 15 * dt);
+		this.visualGroup.scale.y = currentScaleY;
+		// Pivot: when scaled to 0.55, capsule half-height shrinks by (1-0.55)*0.8 = 0.36.
+		// Shift visualGroup DOWN by that amount so the bottom stays at physics-bottom.
+		const halfBody = HEIGHT / 2 + RADIUS; // = 0.8
+		this.visualGroup.position.y = -(1 - currentScaleY) * halfBody;
 	}
 
 	private queryGroundSurface(physics: Physics): string {
