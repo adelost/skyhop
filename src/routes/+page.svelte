@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { Game } from '$game/engine';
+	import { config } from '$game/config.svelte';
 	import DebugHud from '$hud/debug-hud.svelte';
 	import TuningPanel from '$hud/tuning-panel.svelte';
 
@@ -10,10 +11,13 @@
 	let jumpZone: HTMLDivElement;
 	let crouchZone: HTMLDivElement;
 	let actionZone: HTMLDivElement;
+	let camZone: HTMLDivElement;
 	let game: Game | null = $state(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let panelOpen = $state(false);
+	let comboReady = $state(false);
+	let wallKickReady = $state(false);
 
 	onMount(() => {
 		if (!browser) return;
@@ -30,6 +34,19 @@
 				game = g;
 				g.start();
 				loading = false;
+
+				// Camera drag zone (both mouse + touch via pointer events)
+				bindCameraDrag(camZone, g);
+
+				// Combo-ready polling for JUMP glow
+				const pollTick = () => {
+					if (!game) return;
+					const d = game.getDebugInfo();
+					comboReady = d.comboReady;
+					wallKickReady = d.wallKickReady;
+					requestAnimationFrame(pollTick);
+				};
+				requestAnimationFrame(pollTick);
 
 				const isTouch = matchMedia('(pointer: coarse)').matches;
 				if (isTouch) {
@@ -69,6 +86,9 @@
 		const onKey = (e: KeyboardEvent) => {
 			if (e.code === 'KeyT') panelOpen = !panelOpen;
 			if (e.code === 'KeyR') game?.respawn();
+			if (e.code === 'KeyC') game?.recenterCam();
+			if (e.code === 'KeyQ') game?.addYaw(-0.1);
+			if (e.code === 'KeyX') game?.addYaw(0.1);
 		};
 		window.addEventListener('keydown', onKey);
 
@@ -82,10 +102,12 @@
 	function bindHold(el: HTMLElement, down: () => void, up: () => void) {
 		const d = (e: Event) => {
 			e.preventDefault();
+			e.stopPropagation();
 			down();
 		};
 		const u = (e: Event) => {
 			e.preventDefault();
+			e.stopPropagation();
 			up();
 		};
 		el.addEventListener('touchstart', d, { passive: false });
@@ -98,10 +120,43 @@
 	function bindTap(el: HTMLElement, tap: () => void) {
 		const fn = (e: Event) => {
 			e.preventDefault();
+			e.stopPropagation();
 			tap();
 		};
 		el.addEventListener('touchstart', fn, { passive: false });
 		el.addEventListener('mousedown', fn);
+	}
+
+	function bindCameraDrag(el: HTMLElement, g: Game) {
+		let dragging = false;
+		let lastX = 0;
+		let activeId: number | null = null;
+
+		const onDown = (e: PointerEvent) => {
+			if (e.target !== el) return; // don't steal from buttons
+			dragging = true;
+			activeId = e.pointerId;
+			lastX = e.clientX;
+			el.setPointerCapture(e.pointerId);
+		};
+		const onMove = (e: PointerEvent) => {
+			if (!dragging || e.pointerId !== activeId) return;
+			const dx = e.clientX - lastX;
+			lastX = e.clientX;
+			g.addYaw(dx * config.camYawSensitivity);
+		};
+		const onUp = (e: PointerEvent) => {
+			if (e.pointerId !== activeId) return;
+			dragging = false;
+			activeId = null;
+			try {
+				el.releasePointerCapture(e.pointerId);
+			} catch {}
+		};
+		el.addEventListener('pointerdown', onDown);
+		el.addEventListener('pointermove', onMove);
+		el.addEventListener('pointerup', onUp);
+		el.addEventListener('pointercancel', onUp);
 	}
 </script>
 
@@ -117,7 +172,7 @@
 <div class="hud">
 	<div class="title">skyhop</div>
 	<div class="hint">
-		WASD · space jump · shift+jump long/back/side · E dive · shift tap pound · T tune · R respawn
+		WASD · space jump · shift long/back · E dive/pound · Q/X rotate cam · C recenter · T tune · R respawn
 	</div>
 </div>
 
@@ -126,10 +181,19 @@
 	<TuningPanel bind:open={panelOpen} />
 {/if}
 
+<div class="cam-zone" bind:this={camZone}></div>
 <div class="touch-zone joystick" bind:this={joystickZone}></div>
-<div class="touch-btn jump" bind:this={jumpZone}>JUMP</div>
+<div
+	class="touch-btn jump"
+	class:glow-combo={comboReady}
+	class:glow-wall={wallKickReady}
+	bind:this={jumpZone}
+>
+	JUMP
+</div>
 <div class="touch-btn crouch" bind:this={crouchZone}>DUCK</div>
 <div class="touch-btn action" bind:this={actionZone}>ACT</div>
+<button class="cam-recenter" onclick={() => game?.recenterCam()} aria-label="recenter cam">↺</button>
 
 <style>
 	canvas {
@@ -158,6 +222,7 @@
 		left: 12px;
 		pointer-events: none;
 		color: #fff;
+		max-width: 60vw;
 	}
 	.title {
 		font-size: 20px;
@@ -165,13 +230,23 @@
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 	}
 	.hint {
-		font-size: 11px;
+		font-size: 10px;
 		opacity: 0.7;
 		margin-top: 2px;
+	}
+	.cam-zone {
+		position: fixed;
+		top: 0;
+		right: 0;
+		width: 55vw;
+		height: 100vh;
+		touch-action: none;
+		z-index: 1;
 	}
 	.touch-zone {
 		position: fixed;
 		bottom: 0;
+		z-index: 5;
 	}
 	.joystick {
 		left: 0;
@@ -195,6 +270,8 @@
 		font-weight: 700;
 		letter-spacing: 1px;
 		user-select: none;
+		z-index: 10;
+		transition: box-shadow 0.12s, background 0.12s, border-color 0.12s;
 	}
 	.jump {
 		right: 20px;
@@ -211,6 +288,31 @@
 		bottom: 130px;
 		background: rgba(100, 180, 255, 0.2);
 		border-color: rgba(100, 180, 255, 0.6);
+	}
+	.glow-combo {
+		background: rgba(255, 220, 80, 0.45);
+		border-color: rgba(255, 220, 80, 1);
+		box-shadow: 0 0 24px rgba(255, 220, 80, 0.9), 0 0 4px rgba(255, 220, 80, 1) inset;
+	}
+	.glow-wall {
+		background: rgba(180, 100, 255, 0.4);
+		border-color: rgba(200, 140, 255, 1);
+		box-shadow: 0 0 20px rgba(200, 140, 255, 0.9);
+	}
+	.cam-recenter {
+		position: fixed;
+		top: env(safe-area-inset-top, 10px);
+		right: 160px;
+		width: 34px;
+		height: 34px;
+		border-radius: 50%;
+		background: rgba(10, 10, 26, 0.55);
+		color: #cfe;
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		font-size: 16px;
+		cursor: pointer;
+		z-index: 15;
+		touch-action: manipulation;
 	}
 	@media (pointer: fine) {
 		.touch-zone,

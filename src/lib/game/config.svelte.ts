@@ -27,7 +27,11 @@ export const config = $state({
 	groundPoundVel: -25,
 	groundPoundBounce: 6,
 	diveVelY: 3,
-	diveVelXZ: 12
+	diveVelXZ: 12,
+	camYawSensitivity: 0.006,
+	camPitch: 0.35,
+	camDistance: 9,
+	camHeight: 4
 });
 
 export type Config = typeof config;

@@ -83,12 +83,18 @@ export class Player {
 	}
 
 	step(dt: number, input: InputState, physics: Physics): void {
+		// Transform input by camera yaw so W always means "away from camera".
+		const cy = Math.cos(input.cameraYaw);
+		const sy = Math.sin(input.cameraYaw);
+		const mx = input.moveX * cy + input.moveZ * sy;
+		const mz = -input.moveX * sy + input.moveZ * cy;
+
 		const speedTarget = config.moveSpeed;
-		const targetX = input.moveX * speedTarget;
-		const targetZ = input.moveZ * speedTarget;
+		const targetX = mx * speedTarget;
+		const targetZ = mz * speedTarget;
 
 		// Ground accel/decel vs air control. Ice = tiny decel (slippery).
-		const hasInput = Math.abs(input.moveX) > 0.01 || Math.abs(input.moveZ) > 0.01;
+		const hasInput = Math.abs(mx) > 0.01 || Math.abs(mz) > 0.01;
 		const onIce = this.surface === 'ice';
 		let groundRate: number;
 		if (hasInput) groundRate = onIce ? config.accel * config.iceFriction : config.accel;
@@ -134,8 +140,10 @@ export class Player {
 
 		if (canWallKick) {
 			this.executeWallKick();
+			haptic(20);
 		} else if (canGroundJump) {
-			this.executeJump(input, horizSpeed);
+			this.executeJump(input, horizSpeed, mx, mz);
+			haptic(12);
 		}
 
 		// Aerial action moves (ground pound / dive). Only when airborne and not mid-special.
@@ -149,6 +157,7 @@ export class Player {
 				this.velocity.y = config.groundPoundVel;
 				this.state = 'ground_pound';
 				this.jumpChain = 0;
+				haptic(15);
 			} else if (triggerDive) {
 				const mag = Math.max(horizSpeed, 1);
 				const dx = this.velocity.x / mag;
@@ -158,6 +167,7 @@ export class Player {
 				this.velocity.y = config.diveVelY;
 				this.state = 'dive';
 				this.jumpChain = 0;
+				haptic(15);
 			}
 		}
 
@@ -179,17 +189,20 @@ export class Player {
 		this.grounded = this.controller.computedGrounded();
 		if (this.grounded) {
 			if (!wasGrounded) {
+				const fellFast = this.velocity.y < -15;
 				// Landing: capture pre-land state for bounces
 				if (this.state === 'ground_pound') {
 					this.velocity.y = config.groundPoundBounce;
+					haptic(60);
 				} else if (this.velocity.y < 0) {
 					this.velocity.y = 0;
 				}
-				// Dive lands: skid — reduce XZ by half, stay grounded
+				// Dive lands: skid — reduce XZ significantly
 				if (this.state === 'dive') {
 					this.velocity.x *= 0.3;
 					this.velocity.z *= 0.3;
 				}
+				if (fellFast && this.state !== 'ground_pound') haptic(25);
 				this.timeSinceLanding = 0;
 				this.chainOnLanding = this.jumpChain;
 				this.jumpChain = 0;
@@ -312,14 +325,19 @@ export class Player {
 		this.timeSinceWall = 999;
 	}
 
-	private executeJump(input: InputState, horizSpeed: number): void {
+	private executeJump(
+		input: InputState,
+		horizSpeed: number,
+		mx: number,
+		mz: number
+	): void {
 		this.timeSinceGrounded = 999;
 		this.jumpBufferT = 999;
 		this.grounded = false;
 
-		const inputMag = Math.hypot(input.moveX, input.moveZ);
-		const inputDirX = inputMag > 0.3 ? input.moveX / inputMag : 0;
-		const inputDirZ = inputMag > 0.3 ? input.moveZ / inputMag : 0;
+		const inputMag = Math.hypot(mx, mz);
+		const inputDirX = inputMag > 0.3 ? mx / inputMag : 0;
+		const inputDirZ = inputMag > 0.3 ? mz / inputMag : 0;
 
 		// Is input reversed vs current velocity direction? (for side flip)
 		const velDirX = horizSpeed > 0.5 ? this.velocity.x / horizSpeed : 0;
@@ -396,10 +414,32 @@ export class Player {
 			surface: this.surface
 		};
 	}
+
+	get comboReady(): boolean {
+		const windowSec = config.doubleJumpWindowMs / 1000;
+		return (
+			this.grounded &&
+			this.timeSinceLanding <= windowSec &&
+			this.chainOnLanding >= 1 &&
+			this.chainOnLanding < 3
+		);
+	}
+
+	get wallKickReady(): boolean {
+		return (
+			!this.grounded && !!this.wallNormal && this.timeSinceWall <= config.wallStickMs / 1000
+		);
+	}
 }
 
 function approach(current: number, target: number, step: number): number {
 	if (current < target) return Math.min(current + step, target);
 	if (current > target) return Math.max(current - step, target);
 	return current;
+}
+
+function haptic(ms: number): void {
+	if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+		navigator.vibrate(ms);
+	}
 }

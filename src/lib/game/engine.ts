@@ -3,6 +3,7 @@ import { createPhysics, type Physics } from './physics';
 import { Input } from './input';
 import { buildWorld, updateMovingPlatforms, type MovingPlatform } from './world';
 import { Player, type DebugInfo } from './player';
+import { config } from './config.svelte';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 5;
@@ -25,7 +26,7 @@ export class Game {
 	private lastFps = 60;
 
 	private cameraTarget = new THREE.Vector3();
-	private cameraOffset = new THREE.Vector3(0, 4, 8);
+	private cameraYaw = 0;
 
 	constructor(canvas: HTMLCanvasElement) {
 		const isMobile = matchMedia('(pointer: coarse)').matches;
@@ -89,8 +90,24 @@ export class Game {
 		this.player?.respawn();
 	}
 
-	getDebugInfo(): DebugInfo & { fps: number } {
-		return { ...this.player.debug, fps: this.lastFps };
+	addYaw(delta: number): void {
+		this.cameraYaw += delta;
+		// Normalize to (-π, π]
+		if (this.cameraYaw > Math.PI) this.cameraYaw -= 2 * Math.PI;
+		if (this.cameraYaw < -Math.PI) this.cameraYaw += 2 * Math.PI;
+	}
+
+	recenterCam(): void {
+		this.cameraYaw = 0;
+	}
+
+	getDebugInfo(): DebugInfo & { fps: number; comboReady: boolean; wallKickReady: boolean } {
+		return {
+			...this.player.debug,
+			fps: this.lastFps,
+			comboReady: this.player.comboReady,
+			wallKickReady: this.player.wallKickReady
+		};
 	}
 
 	private loop = (): void => {
@@ -113,6 +130,7 @@ export class Game {
 		while (this.accumulator >= FIXED_DT && steps < MAX_STEPS) {
 			this.simTime += FIXED_DT;
 			updateMovingPlatforms(this.movingPlatforms, this.physics, this.simTime);
+			this.input.setCameraYaw(this.cameraYaw);
 			const snap = this.input.sample();
 			this.player.step(FIXED_DT, snap, this.physics);
 			this.physics.world.step();
@@ -128,7 +146,15 @@ export class Game {
 	private updateCamera(dt: number): void {
 		const pos = this.player.position;
 		this.cameraTarget.lerp(pos, Math.min(1, dt * 6));
-		const camPos = this.cameraTarget.clone().add(this.cameraOffset);
+		// Orbit offset around player, rotated by cameraYaw
+		const dist = config.camDistance;
+		const offsetX = Math.sin(this.cameraYaw) * dist;
+		const offsetZ = Math.cos(this.cameraYaw) * dist;
+		const camPos = new THREE.Vector3(
+			this.cameraTarget.x + offsetX,
+			this.cameraTarget.y + config.camHeight,
+			this.cameraTarget.z + offsetZ
+		);
 		this.camera.position.lerp(camPos, Math.min(1, dt * 6));
 		this.camera.lookAt(this.cameraTarget);
 	}

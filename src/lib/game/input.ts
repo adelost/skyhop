@@ -6,6 +6,7 @@ export type InputState = {
 	crouchHeld: boolean;
 	crouchPressed: boolean;
 	actionPressed: boolean;
+	cameraYaw: number;
 };
 
 export class Input {
@@ -22,6 +23,7 @@ export class Input {
 	private touchCrouchHeld = false;
 	private touchCrouchPressed = false;
 	private touchActionPressed = false;
+	private cameraYaw = 0;
 	private cleanup: Array<() => void> = [];
 
 	attach(): void {
@@ -83,6 +85,10 @@ export class Input {
 		this.touchActionPressed = true;
 	}
 
+	setCameraYaw(y: number): void {
+		this.cameraYaw = y;
+	}
+
 	sample(): InputState {
 		let mx = 0;
 		let mz = 0;
@@ -117,7 +123,8 @@ export class Input {
 			jumpHeld: this.jumpHeld || this.touchJumpHeld,
 			crouchHeld: this.crouchHeld || this.touchCrouchHeld,
 			crouchPressed,
-			actionPressed
+			actionPressed,
+			cameraYaw: this.cameraYaw
 		};
 	}
 }
