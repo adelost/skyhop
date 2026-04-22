@@ -89,6 +89,7 @@ export const config = $state({
 	ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
 	ledgeShimmySpeed: 2.0, // m/s along the ledge
 	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
+	ledgeClimbDurationMs: 420, // smooth pull-up animation length
 
 	// Wall-slide pose. Legs-into-wall, head-away: POSITIVE pitch (with nose facing
 	// into wall, positive pitch tips head backward = away from wall).

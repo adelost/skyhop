@@ -4,6 +4,16 @@ import type { Physics } from './physics';
 import type { InputState } from './input';
 import type { MovingPlatform } from './world';
 import { config } from './config.svelte';
+import {
+	queryGroundSurface,
+	queryWallContact,
+	tryLedgeGrab,
+	verifyLedgeAt,
+	type WallNormal
+} from './player-queries';
+import { computePose } from './player-visuals';
+import { buildPlayerMeshes } from './player-mesh';
+import { computeJump, computeWallKick } from './player-jumps';
 
 const RADIUS = 0.4;
 const HEIGHT = 0.8;
@@ -59,10 +69,16 @@ export class Player {
 	private targetYaw = 0;
 	private skidT = 999;
 
-	private wallNormal: { x: number; z: number } | null = null;
+	private wallNormal: WallNormal | null = null;
 	private timeSinceWall = 999;
-	private lastWallKickNormal: { x: number; z: number } | null = null;
+	private lastWallKickNormal: WallNormal | null = null;
 	private timeSinceWallKick = 999;
+
+	// Ledge climb animation state. climbT = -1 = not climbing.
+	private climbT = -1;
+	private climbStart = new THREE.Vector3();
+	private climbEnd = new THREE.Vector3();
+	private shimmyDir = 0; // -1, 0, or +1
 
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	private ledgeGrabCooldown = 0;
@@ -77,33 +93,11 @@ export class Player {
 	constructor(scene: THREE.Scene, physics: Physics, spawn: THREE.Vector3) {
 		this.startPos = spawn.clone();
 
-		// Outer group = physics position only. Inner visual group handles rotation,
-		// scale, and pivot offsets (so crouch-scale shrinks from feet, not center).
-		this.mesh = new THREE.Group();
-		this.visualGroup = new THREE.Group();
-		this.mesh.add(this.visualGroup);
-
-		const bodyGeo = new THREE.CapsuleGeometry(RADIUS, HEIGHT, 4, 8);
-		const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe03030, roughness: 0.4 });
-		this.bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-		this.visualGroup.add(this.bodyMesh);
-
-		const noseGeo = new THREE.ConeGeometry(0.18, 0.4, 10);
-		noseGeo.rotateX(-Math.PI / 2);
-		const noseMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
-		this.noseMesh = new THREE.Mesh(noseGeo, noseMat);
-		this.noseMesh.position.set(0, EYE_HEIGHT, -RADIUS - 0.1);
-		this.visualGroup.add(this.noseMesh);
-
-		const eyeGeo = new THREE.SphereGeometry(0.06, 8, 6);
-		const eyeMat = new THREE.MeshStandardMaterial({ color: 0x221818, roughness: 0.2 });
-		const eL = new THREE.Mesh(eyeGeo, eyeMat);
-		eL.position.set(-0.13, EYE_HEIGHT + 0.1, -RADIUS - 0.05);
-		const eR = new THREE.Mesh(eyeGeo, eyeMat);
-		eR.position.set(0.13, EYE_HEIGHT + 0.1, -RADIUS - 0.05);
-		this.visualGroup.add(eL);
-		this.visualGroup.add(eR);
-
+		const meshes = buildPlayerMeshes();
+		this.mesh = meshes.outer;
+		this.visualGroup = meshes.inner;
+		this.bodyMesh = meshes.body;
+		this.noseMesh = meshes.nose;
 		this.mesh.position.copy(spawn);
 		scene.add(this.mesh);
 
@@ -168,6 +162,8 @@ export class Player {
 		this.timeSinceWallKick = 999;
 		this.ledgePos = null;
 		this.ledgeGrabCooldown = 0;
+		this.climbT = -1;
+		this.shimmyDir = 0;
 		this.skidT = 999;
 		this.pitchAngle = 0;
 		this.yawSpin = 0;
@@ -180,7 +176,9 @@ export class Player {
 		this.crouching = input.crouchHeld;
 
 		// Query slope/surface FIRST so this frame's movement knows about it.
-		this.surface = this.queryGroundSurface(physics);
+		this.surface = this.grounded
+			? queryGroundSurface(physics, this.collider, this.body, this.slopeNormal)
+			: (this.slopeNormal.set(0, 1, 0), 'air');
 		const ny = Math.max(-1, Math.min(1, this.slopeNormal.y));
 		this.slopeAngleDeg = Math.acos(ny) * (180 / Math.PI);
 
@@ -240,14 +238,15 @@ export class Player {
 		}
 
 		// Horizontal accel/decel. Locked states keep their momentum.
-		const momentumLocked =
-			(!this.grounded &&
-				(this.state === 'long_jump' ||
-					this.state === 'side_flip' ||
-					this.state === 'dive' ||
-					this.state === 'ground_pound')) ||
-			this.state === 'slope_slide' ||
-			this.state === 'crouch_slide' ||
+			const momentumLocked =
+				(!this.grounded &&
+					(this.state === 'long_jump' ||
+						this.state === 'backflip' ||
+						this.state === 'side_flip' ||
+						this.state === 'dive' ||
+						this.state === 'ground_pound')) ||
+				this.state === 'slope_slide' ||
+				this.state === 'crouch_slide' ||
 			this.state === 'skid';
 
 		let groundRate: number;
@@ -295,11 +294,11 @@ export class Player {
 			this.timeSinceLanding += dt;
 		}
 
-		// Track facing from velocity (desired yaw).
-		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-		if (horizSpeed > 0.5 && this.state !== 'skid') {
-			this.targetYaw = Math.atan2(-this.velocity.x, -this.velocity.z);
-		}
+			// Track facing from velocity (desired yaw).
+			const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+			if (this.shouldTrackFacingFromVelocity(horizSpeed)) {
+				this.targetYaw = Math.atan2(-this.velocity.x, -this.velocity.z);
+			}
 
 		// Jump buffer
 		if (input.jumpPressed) this.jumpBufferT = 0;
@@ -341,25 +340,27 @@ export class Player {
 			const triggerGP =
 				input.crouchPressed || (input.actionPressed && horizSpeed < 2.5);
 			const triggerDive = input.actionPressed && horizSpeed >= 2.5;
-			if (triggerGP) {
-				this.velocity.x = 0;
-				this.velocity.z = 0;
-				this.velocity.y = config.groundPoundVel;
-				this.state = 'ground_pound';
-				this.jumpChain = 0;
-				haptic(15);
-			} else if (triggerDive) {
-				const mag = Math.max(horizSpeed, 1);
-				const dx = this.velocity.x / mag;
-				const dz = this.velocity.z / mag;
+				if (triggerGP) {
+					this.velocity.x = 0;
+					this.velocity.z = 0;
+					this.velocity.y = config.groundPoundVel;
+					this.state = 'ground_pound';
+					this.jumpChain = 0;
+					this.setFacing(this.facingYaw);
+					haptic(15);
+				} else if (triggerDive) {
+					const mag = Math.max(horizSpeed, 1);
+					const dx = this.velocity.x / mag;
+					const dz = this.velocity.z / mag;
 				this.velocity.x = dx * config.diveVelXZ;
-				this.velocity.z = dz * config.diveVelXZ;
-				this.velocity.y = config.diveVelY;
-				this.state = 'dive';
-				this.jumpChain = 0;
-				haptic(15);
+					this.velocity.z = dz * config.diveVelXZ;
+					this.velocity.y = config.diveVelY;
+					this.state = 'dive';
+					this.jumpChain = 0;
+					this.snapFacingToVelocity();
+					haptic(15);
+				}
 			}
-		}
 
 		// Variable jump cut (M64-style gravity multiplier)
 		const cuttable =
@@ -410,25 +411,43 @@ export class Player {
 
 		// Wall detection (capture contact only — state change happens after ledge check).
 		this.timeSinceWall += dt;
-		const wallHit = this.grounded ? null : this.queryWallContact(physics);
+		const wallHit = this.grounded ? null : queryWallContact(physics, this.collider, this.body);
 		if (wallHit) {
 			this.wallNormal = wallHit;
 			this.timeSinceWall = 0;
 		}
 
-		// Ledge grab FIRST so wall_slide doesn't lock us out. Allow from both
-		// airborne and wall_slide (sliding players should be able to snag a ledge).
+		// Ledge grab FIRST so wall_slide doesn't lock us out. Require user intent
+		// (stick pressed toward wall) OR decisive velocity-into-wall, so drifting
+		// past a wall doesn't magnet-snap.
 		const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
 		const ledgeEligibleState =
 			this.state === 'airborne' || this.state === 'wall_slide';
+		let hasIntent = false;
+		if (this.wallNormal) {
+			const inputMag = Math.hypot(mx, mz);
+			const inputIntoWall =
+				inputMag > 0.3
+					? (mx * -this.wallNormal.x + mz * -this.wallNormal.z) / inputMag
+					: 0;
+			const velIntoWall =
+				this.velocity.x * -this.wallNormal.x + this.velocity.z * -this.wallNormal.z;
+			hasIntent = inputIntoWall > 0.3 || velIntoWall > 2;
+		}
 		if (
 			!this.grounded &&
 			ledgeEligibleState &&
 			this.velocity.y < -config.ledgeMinFallSpeed &&
 			this.ledgeGrabCooldown <= 0 &&
-			(horizSp > 0.5 || !!this.wallNormal)
+			hasIntent
 		) {
-			const ledge = this.tryLedgeGrab(physics);
+			const ledge = tryLedgeGrab({
+				physics,
+				collider: this.collider,
+				body: this.body,
+				wallNormal: this.wallNormal,
+				velocity: this.velocity
+			});
 			if (ledge) {
 				this.ledgePos = ledge;
 				this.body.setTranslation(ledge, true);
@@ -465,26 +484,60 @@ export class Player {
 			return;
 		}
 
-		// Cam-relative input for up/down + shimmy intent
+		// Climb animation in progress: interpolate + skip rest of logic.
+		if (this.climbT >= 0) {
+			this.climbT += dt;
+			const durSec = config.ledgeClimbDurationMs / 1000;
+			const t = Math.min(1, this.climbT / durSec);
+			const eased = t * t * (3 - 2 * t);
+			const x = this.climbStart.x + (this.climbEnd.x - this.climbStart.x) * eased;
+			const y = this.climbStart.y + (this.climbEnd.y - this.climbStart.y) * eased;
+			const z = this.climbStart.z + (this.climbEnd.z - this.climbStart.z) * eased;
+			this.body.setTranslation({ x, y, z }, true);
+			this.mesh.position.set(x, y, z);
+			if (t >= 1) {
+				this.state = 'grounded';
+				this.ledgePos = null;
+				this.climbT = -1;
+				this.ledgeGrabCooldown = 0.3;
+			}
+			this.updateVisuals(dt);
+			return;
+		}
+
+		// Cam-relative input
 		const cy = Math.cos(input.cameraYaw);
 		const sy = Math.sin(input.cameraYaw);
 		const mx = input.moveX * cy + input.moveZ * sy;
 		const mz = -input.moveX * sy + input.moveZ * cy;
 
-		// Shimmy along ledge tangent (horizontal perpendicular to wall normal)
+		// Shimmy along ledge tangent
+		this.shimmyDir = 0;
 		if (this.wallNormal && Math.abs(mx) > 0.3) {
 			const tx = -this.wallNormal.z;
 			const tz = this.wallNormal.x;
 			const proj = mx * tx + mz * tz;
 			const dir = proj !== 0 ? Math.sign(proj) : Math.sign(mx);
+			this.shimmyDir = dir;
 			const step = config.ledgeShimmySpeed * dir * dt;
 			const candidate = {
 				x: this.ledgePos.x + tx * step,
 				y: this.ledgePos.y,
 				z: this.ledgePos.z + tz * step
 			};
-			if (this.verifyLedgeAt(candidate, physics)) {
+			if (verifyLedgeAt(physics, this.collider, this.wallNormal, candidate)) {
 				this.ledgePos = candidate;
+			}
+		}
+
+		// Target facing: wall-direction if still, tangent-direction if shimmying.
+		if (this.wallNormal) {
+			if (this.shimmyDir !== 0) {
+				const tx = -this.wallNormal.z;
+				const tz = this.wallNormal.x;
+				this.targetYaw = Math.atan2(-tx * this.shimmyDir, -tz * this.shimmyDir);
+			} else {
+				this.targetYaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
 			}
 		}
 
@@ -494,20 +547,17 @@ export class Player {
 		this.mesh.position.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
 
 		if (mz < -0.6) {
-			// Pull up: step forward into wall + up by a body height
+			// Start climb animation — lerp from hang pos to standing on top over duration.
 			const intoWall = this.wallNormal
 				? new THREE.Vector3(-this.wallNormal.x, 0, -this.wallNormal.z).normalize()
 				: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
-			const up = {
-				x: this.ledgePos.x + intoWall.x * 0.6,
-				y: this.ledgePos.y + HEIGHT + 0.3,
-				z: this.ledgePos.z + intoWall.z * 0.6
-			};
-			this.body.setTranslation(up, true);
-			this.mesh.position.set(up.x, up.y, up.z);
-			this.state = 'grounded';
-			this.ledgePos = null;
-			this.ledgeGrabCooldown = 0.3;
+			this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
+			this.climbEnd.set(
+				this.ledgePos.x + intoWall.x * 0.7,
+				this.ledgePos.y + HEIGHT + 0.3,
+				this.ledgePos.z + intoWall.z * 0.7
+			);
+			this.climbT = 0;
 			haptic(20);
 		} else if (input.jumpPressed) {
 			this.velocity.y = config.jumpVel;
@@ -524,287 +574,27 @@ export class Player {
 		this.updateVisuals(dt);
 	}
 
-	private verifyLedgeAt(
-		pos: { x: number; y: number; z: number },
-		physics: Physics
-	): boolean {
-		if (!this.wallNormal) return false;
-		const { world, rapier } = physics;
-		const chestY = pos.y + 0.1;
-		const headY = pos.y + HEIGHT / 2 + config.ledgeUpReach;
-		const fwd = new THREE.Vector3(
-			-this.wallNormal.x,
-			0,
-			-this.wallNormal.z
-		).normalize();
-		const reach = config.ledgeForwardReach + 0.1;
-		const chest = world.castRayAndGetNormal(
-			new rapier.Ray({ x: pos.x, y: chestY, z: pos.z }, { x: fwd.x, y: 0, z: fwd.z }),
-			reach,
-			true,
-			undefined,
-			undefined,
-			this.collider
-		);
-		if (!chest || Math.abs(chest.normal.y) > 0.3) return false;
-		const head = world.castRay(
-			new rapier.Ray({ x: pos.x, y: headY, z: pos.z }, { x: fwd.x, y: 0, z: fwd.z }),
-			reach,
-			true,
-			undefined,
-			undefined,
-			this.collider
-		);
-		if (head) return false;
-		return true;
-	}
-
-	private tryLedgeGrab(physics: Physics): { x: number; y: number; z: number } | null {
-		const { world, rapier } = physics;
-		const origin = this.body.translation();
-		const chestY = origin.y + 0.1;
-		const headY = origin.y + HEIGHT / 2 + config.ledgeUpReach;
-
-		// Forward direction: prefer wall normal if we already know about a wall
-		// (wall_slide state), else use horizontal velocity. Guards against
-		// sideways-drift false positives + works when sliding down a wall.
-		let fwd: THREE.Vector3;
-		if (this.wallNormal) {
-			// wallNormal points AWAY from wall → into wall = -wallNormal
-			const invLen = 1 / Math.hypot(this.wallNormal.x, this.wallNormal.z);
-			fwd = new THREE.Vector3(-this.wallNormal.x * invLen, 0, -this.wallNormal.z * invLen);
-		} else {
-			const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
-			if (horizSp < 0.5) return null;
-			fwd = new THREE.Vector3(this.velocity.x / horizSp, 0, this.velocity.z / horizSp);
-		}
-		const reach = config.ledgeForwardReach;
-
-		// 1. Chest ray must hit a wall (vertical surface).
-		const chestOrigin = { x: origin.x, y: chestY, z: origin.z };
-		const rayChest = new rapier.Ray(chestOrigin, { x: fwd.x, y: 0, z: fwd.z });
-		const chestHit = world.castRayAndGetNormal(
-			rayChest,
-			reach,
-			true,
-			undefined,
-			undefined,
-			this.collider
-		);
-		if (!chestHit || Math.abs(chestHit.normal.y) > 0.3) return null;
-
-		// Velocity must face INTO the wall (dot-product with inward normal > threshold).
-		const intoWall = fwd.x * -chestHit.normal.x + fwd.z * -chestHit.normal.z;
-		if (intoWall < 0.4) return null;
-
-		// 2. Head-level ray must MISS (otherwise wall is too tall — no ledge).
-		const headOrigin = { x: origin.x, y: headY, z: origin.z };
-		const rayHead = new rapier.Ray(headOrigin, { x: fwd.x, y: 0, z: fwd.z });
-		const headHit = world.castRay(
-			rayHead,
-			reach + 0.15,
-			true,
-			undefined,
-			undefined,
-			this.collider
-		);
-		if (headHit) return null;
-
-		// 3. Probe down from just past the wall to find the ledge top.
-		const probeX = origin.x + fwd.x * (chestHit.timeOfImpact + 0.1);
-		const probeZ = origin.z + fwd.z * (chestHit.timeOfImpact + 0.1);
-		const aboveWall = { x: probeX, y: headY, z: probeZ };
-		const rayDown = new rapier.Ray(aboveWall, { x: 0, y: -1, z: 0 });
-		const downHit = world.castRayAndGetNormal(
-			rayDown,
-			config.ledgeUpReach + 0.3,
-			true,
-			undefined,
-			undefined,
-			this.collider
-		);
-		if (!downHit || downHit.normal.y < 0.7) return null;
-
-		const ledgeY = aboveWall.y - downHit.timeOfImpact;
-
-		// CRITICAL: ledge top must be ABOVE player chest. Otherwise this is a cliff
-		// edge we are falling past (e.g. jumping off a platform) — not a grab target.
-		if (ledgeY <= chestY) return null;
-
-		// Also: don't grab ledges higher than we can realistically reach.
-		if (ledgeY - chestY > config.ledgeUpReach + HEIGHT / 2) return null;
-
-		const grabY = ledgeY - HEIGHT / 2 - 0.05;
-		const wallX = origin.x + fwd.x * chestHit.timeOfImpact;
-		const wallZ = origin.z + fwd.z * chestHit.timeOfImpact;
-		return {
-			x: wallX - fwd.x * (RADIUS + 0.05),
-			y: grabY,
-			z: wallZ - fwd.z * (RADIUS + 0.05)
-		};
-	}
-
 	private updateVisuals(dt: number): void {
-		// Update base facing yaw (skip lerp during skid = freeze)
-		if (this.state !== 'skid' && this.state !== 'ledge_hang') {
-			const step = config.rotationSpeed * dt;
-			this.facingYaw = lerpAngle(this.facingYaw, this.targetYaw, step);
-		}
-
-		let pitch = 0;
-		let yaw = this.facingYaw;
-		let targetScaleY = 1;
-
-		// Sign convention (YXZ order, pitch around local X):
-		//   +pitch = back-lean / backward somersault (head tips backward toward +Z)
-		//   -pitch = forward lean / forward somersault (head tips forward toward -Z)
-		if (this.state === 'long_jump') {
-			// Mario 64 long jump: leaning forward ~60°, not fully horizontal
-			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 3, 10 * dt);
-			pitch = this.pitchAngle;
-		} else if (this.state === 'dive') {
-			// Superman: full horizontal, belly down, head forward
-			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 2, 12 * dt);
-			pitch = this.pitchAngle;
-		} else if (this.state === 'backflip') {
-			// Backward somersault: pitch INCREASES (+direction)
-			this.pitchAngle += 8 * dt;
-			pitch = this.pitchAngle;
-		} else if (this.state === 'side_flip') {
-			// Forward somersault, quick (≈2 rot/s). Facing already flipped by velocity.
-			this.pitchAngle -= 12 * dt;
-			pitch = this.pitchAngle;
-		} else if (this.state === 'ground_pound') {
-			// Forward tumble on way down
-			this.pitchAngle -= 18 * dt;
-			pitch = this.pitchAngle;
-		} else if (this.state === 'airborne' && this.jumpChain === 3) {
-			// Triple jump forward somersault
-			this.pitchAngle -= 6.5 * dt;
-			pitch = this.pitchAngle;
-		} else if (this.state === 'wall_slide' && this.wallNormal) {
-			// Face into wall (nose at wall). Positive pitch = head tips BACK = away
-			// from wall, legs toward wall. Don't write to this.facingYaw (cam jitter).
-			yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
-			const target = (config.wallSlidePoseDeg * Math.PI) / 180;
-			this.pitchAngle = lerpToward(this.pitchAngle, target, config.poseLerpRate * dt);
-			pitch = this.pitchAngle;
-		} else if (this.state === 'ledge_hang') {
-			if (this.wallNormal) {
-				yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
-			}
-			// Negative pitch = head tips FORWARD = into wall (hands grabbing ledge),
-			// feet hang below and out. Distinct from wall_slide pose.
-			const target = (config.ledgePoseDeg * Math.PI) / 180;
-			this.pitchAngle = lerpToward(this.pitchAngle, target, config.poseLerpRate * dt);
-			pitch = this.pitchAngle;
-		} else if (this.state === 'skid') {
-			// Brake pose — lean back, feet skidding forward. Visual-only until skid ends.
-			const targetLean = (config.skidLeanDeg * Math.PI) / 180;
-			this.pitchAngle = lerpToward(this.pitchAngle, targetLean, 10 * dt);
-			pitch = this.pitchAngle;
-		} else if (this.state === 'crouch_slide') {
-			// Belly slide — body flat, face-down, nose forward.
-			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 2, 12 * dt);
-			pitch = this.pitchAngle;
-			targetScaleY = 0.55;
-		} else if (this.state === 'slope_slide') {
-			// Forced slide on steep slope — sitting pose, leaning BACK (+pitch).
-			this.pitchAngle = lerpToward(this.pitchAngle, Math.PI / 5, 10 * dt);
-			pitch = this.pitchAngle;
-			targetScaleY = 0.7;
-		} else {
-			// Grounded or plain airborne — normalize accumulated rotation to [-π, π]
-			// first so the decay doesn't have to "unwind" multiple full rotations,
-			// then lerp back to upright.
-			const tau = Math.PI * 2;
-			this.pitchAngle = ((this.pitchAngle + Math.PI) % tau + tau) % tau - Math.PI;
-			this.pitchAngle = lerpToward(this.pitchAngle, 0, 12 * dt);
-			this.yawSpin = lerpToward(this.yawSpin, 0, 8 * dt);
-			pitch = this.pitchAngle;
-		}
-
-		// Crouch scale: grounded + crouch held (unless already handled by slide states)
-		if (
-			this.crouching &&
-			this.grounded &&
-			this.state !== 'crouch_slide' &&
-			this.state !== 'slope_slide'
-		) {
-			targetScaleY = 0.55;
-		}
-
-		// Apply rotation to inner visualGroup (not outer mesh, so crouch pivot works)
-		this.visualGroup.rotation.set(pitch, yaw, 0, 'YXZ');
-
-		// Smooth scale + pivot-to-feet offset so feet stay on the ground.
-		const currentScaleY = lerpToward(this.visualGroup.scale.y, targetScaleY, 15 * dt);
-		this.visualGroup.scale.y = currentScaleY;
-		// Pivot: when scaled to 0.55, capsule half-height shrinks by (1-0.55)*0.8 = 0.36.
-		// Shift visualGroup DOWN by that amount so the bottom stays at physics-bottom.
-		const halfBody = HEIGHT / 2 + RADIUS; // = 0.8
-		this.visualGroup.position.y = -(1 - currentScaleY) * halfBody;
-	}
-
-	private queryGroundSurface(physics: Physics): string {
-		if (!this.grounded) {
-			this.slopeNormal.set(0, 1, 0);
-			return 'air';
-		}
-		const { world, rapier } = physics;
-		const origin = this.body.translation();
-
-		// Cast from above player center down a long way so capsule-on-slope contact
-		// (which can be off-center for steep slopes) still registers.
-		const rayOrigin = { x: origin.x, y: origin.y + RADIUS, z: origin.z };
-		const ray = new rapier.Ray(rayOrigin, { x: 0, y: -1, z: 0 });
-		const maxReach = HEIGHT + RADIUS * 2 + 0.5; // comfortable over-reach
-		let best = world.castRayAndGetNormal(
-			ray,
-			maxReach,
-			true,
-			undefined,
-			undefined,
-			this.collider
-		);
-
-		// Fallback: probe slightly offset in the 4 cardinal directions so steep slopes
-		// (where contact is laterally offset) are never missed.
-		if (!best || best.normal.y > 0.999) {
-			const offsets: [number, number][] = [
-				[RADIUS * 0.6, 0],
-				[-RADIUS * 0.6, 0],
-				[0, RADIUS * 0.6],
-				[0, -RADIUS * 0.6]
-			];
-			for (const [ox, oz] of offsets) {
-				const probe = new rapier.Ray(
-					{ x: origin.x + ox, y: origin.y + RADIUS, z: origin.z + oz },
-					{ x: 0, y: -1, z: 0 }
-				);
-				const h = world.castRayAndGetNormal(
-					probe,
-					maxReach,
-					true,
-					undefined,
-					undefined,
-					this.collider
-				);
-				if (h && (!best || h.normal.y < best.normal.y)) {
-					// Prefer hits with lower normal.y (more slope)
-					best = h;
-				}
-			}
-		}
-
-		if (!best) {
-			this.slopeNormal.set(0, 1, 0);
-			return 'grass';
-		}
-		this.slopeNormal.set(best.normal.x, best.normal.y, best.normal.z);
-		// best.collider is already a Collider instance (not a handle)
-		if (best.collider.friction() < 0.1) return 'ice';
-		return 'grass';
+		const pose = computePose({
+			state: this.state,
+			dt,
+			facingYaw: this.facingYaw,
+			targetYaw: this.targetYaw,
+			pitchAngle: this.pitchAngle,
+			yawSpin: this.yawSpin,
+			jumpChain: this.jumpChain,
+			wallNormal: this.wallNormal,
+			grounded: this.grounded,
+			timeSinceGrounded: this.timeSinceGrounded,
+			crouching: this.crouching,
+			currentScaleY: this.visualGroup.scale.y
+		});
+		this.facingYaw = pose.facingYaw;
+		this.pitchAngle = pose.pitchAngle;
+		this.yawSpin = pose.yawSpin;
+		this.visualGroup.rotation.set(pose.renderPitch, pose.renderYaw, 0, 'YXZ');
+		this.visualGroup.scale.y = pose.scaleY;
+		this.visualGroup.position.y = pose.offsetY;
 	}
 
 	private applySlopePhysics(dt: number): void {
@@ -836,43 +626,18 @@ export class Player {
 		}
 	}
 
-	private queryWallContact(physics: Physics): { x: number; z: number } | null {
-		const { world, rapier } = physics;
-		const origin = this.body.translation();
-		const reach = RADIUS + 0.15;
-		const dirs: [number, number][] = [
-			[1, 0],
-			[-1, 0],
-			[0, 1],
-			[0, -1]
-		];
-		for (const [dx, dz] of dirs) {
-			const ray = new rapier.Ray(
-				{ x: origin.x, y: origin.y, z: origin.z },
-				{ x: dx, y: 0, z: dz }
-			);
-			const hit = world.castRayAndGetNormal(ray, reach, true, undefined, undefined, this.collider);
-			if (hit && Math.abs(hit.normal.y) < 0.5) {
-				return { x: hit.normal.x, z: hit.normal.z };
-			}
-		}
-		return null;
-	}
-
 	private executeWallKick(): void {
 		if (!this.wallNormal) return;
-		// Remember this wall so we can't chain-kick the same face.
+		const result = computeWallKick(this.wallNormal);
 		this.lastWallKickNormal = { x: this.wallNormal.x, z: this.wallNormal.z };
 		this.timeSinceWallKick = 0;
-		this.velocity.y = config.wallKickVelY;
-		this.velocity.x = this.wallNormal.x * config.wallKickVelXZ;
-		this.velocity.z = this.wallNormal.z * config.wallKickVelXZ;
+		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
 		this.state = 'airborne';
 		this.jumpChain = 1;
 		this.jumpBufferT = 999;
 		this.wallNormal = null;
 		this.timeSinceWall = 999;
-		this.targetYaw = Math.atan2(-this.velocity.x, -this.velocity.z);
+		this.targetYaw = result.targetYaw;
 	}
 
 	private executeJump(
@@ -885,56 +650,22 @@ export class Player {
 		this.jumpBufferT = 999;
 		this.grounded = false;
 
-		const inputMag = Math.hypot(mx, mz);
-		const inputDirX = inputMag > 0.3 ? mx / inputMag : 0;
-		const inputDirZ = inputMag > 0.3 ? mz / inputMag : 0;
+		const result = computeJump({
+			crouchHeld: input.crouchHeld,
+			mx,
+			mz,
+			horizSpeed,
+			velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+			facingYaw: this.facingYaw,
+			chainOnLanding: this.chainOnLanding,
+			timeSinceLanding: this.timeSinceLanding
+		});
+		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
+		this.state = result.state;
+		this.jumpChain = result.jumpChain;
 
-		const velDirX = horizSpeed > 0.5 ? this.velocity.x / horizSpeed : 0;
-		const velDirZ = horizSpeed > 0.5 ? this.velocity.z / horizSpeed : 0;
-		const reversed =
-			inputMag > 0.5 && horizSpeed > 0.5 && inputDirX * velDirX + inputDirZ * velDirZ < -0.5;
-
-		const windowSec = config.doubleJumpWindowMs / 1000;
-		const canChain =
-			this.timeSinceLanding <= windowSec && this.chainOnLanding >= 1 && horizSpeed > 2;
-
-		if (input.crouchHeld && horizSpeed > 3) {
-			this.velocity.y = config.longJumpVelY;
-			const dirX = velDirX || inputDirX;
-			const dirZ = velDirZ || inputDirZ;
-			this.velocity.x = dirX * config.longJumpVelXZ;
-			this.velocity.z = dirZ * config.longJumpVelXZ;
-			this.state = 'long_jump';
-			this.jumpChain = 0;
-		} else if (input.crouchHeld) {
-			this.velocity.y = config.backflipVelY;
-			const facing = new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
-			this.velocity.x = -facing.x * Math.abs(config.backflipVelXZ);
-			this.velocity.z = -facing.z * Math.abs(config.backflipVelXZ);
-			this.state = 'backflip';
-			this.jumpChain = 0;
-		} else if (reversed && horizSpeed > 3) {
-			this.velocity.y = config.sideFlipVelY;
-			this.velocity.x = inputDirX * config.longJumpVelXZ * 0.6;
-			this.velocity.z = inputDirZ * config.longJumpVelXZ * 0.6;
-			this.state = 'side_flip';
-			this.jumpChain = 0;
-		} else if (canChain) {
-			this.jumpChain = this.chainOnLanding + 1;
-			if (this.jumpChain >= 3) {
-				this.velocity.y = config.tripleJumpVel;
-				this.jumpChain = 3;
-			} else {
-				// Running-jump height bonus (M64: +0.25 × fVel on double, scaled)
-				this.velocity.y = config.doubleJumpVel + config.runDoubleJumpBonus * horizSpeed;
-			}
-			this.state = 'airborne';
-		} else {
-			// Normal jump with running bonus
-			this.velocity.y = config.jumpVel + config.runJumpBonus * horizSpeed;
-			this.jumpChain = 1;
-			this.state = 'airborne';
-		}
+		if (result.facing === 'snap-to-velocity') this.snapFacingToVelocity();
+		else if (typeof result.facing === 'object') this.setFacing(result.facing.yaw);
 
 		this.timeSinceLanding = 999;
 	}
@@ -983,6 +714,46 @@ export class Player {
 
 	get isMoving(): boolean {
 		return Math.hypot(this.velocity.x, this.velocity.z) > 2;
+	}
+
+	private shouldTrackFacingFromVelocity(horizSpeed: number): boolean {
+		return (
+			horizSpeed > 0.5 &&
+			this.state !== 'skid' &&
+			this.state !== 'wall_slide' &&
+			!this.isFacingLockedMove()
+		);
+	}
+
+	private shouldRotateTowardTarget(): boolean {
+		return (
+			this.state !== 'skid' &&
+			this.state !== 'wall_slide' &&
+			!this.isFacingLockedMove()
+		);
+	}
+
+	private isFacingLockedMove(): boolean {
+		return (
+			this.state === 'backflip' ||
+			this.state === 'long_jump' ||
+			this.state === 'side_flip' ||
+			this.state === 'dive' ||
+			this.state === 'ground_pound' ||
+			(this.state === 'airborne' && this.jumpChain === 3)
+		);
+	}
+
+	private snapFacingToVelocity(): void {
+		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+		if (horizSpeed <= 0.001) return;
+		this.setFacing(Math.atan2(-this.velocity.x, -this.velocity.z));
+	}
+
+	private setFacing(yaw: number): void {
+		const normalized = normalizeAngle(yaw);
+		this.facingYaw = normalized;
+		this.targetYaw = normalized;
 	}
 }
 

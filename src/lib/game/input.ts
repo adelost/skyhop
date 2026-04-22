@@ -45,7 +45,10 @@ export class Input {
 		const onKeyUp = (e: KeyboardEvent) => {
 			this.keys.delete(e.code);
 			if (e.code === 'Space') this.jumpHeld = false;
-			if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.crouchHeld = false;
+			if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+				// Only clear crouch if neither shift is still held.
+				this.crouchHeld = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+			}
 		};
 		window.addEventListener('keydown', onKeyDown);
 		window.addEventListener('keyup', onKeyUp);
