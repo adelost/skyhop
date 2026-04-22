@@ -124,9 +124,22 @@ export class Player {
 	respawn(): void {
 		this.body.setTranslation({ x: this.startPos.x, y: this.startPos.y, z: this.startPos.z }, true);
 		this.velocity.set(0, 0, 0);
+		// Full transient reset so first frame doesn't inherit ghost coyote/combo/wall-kick.
+		this.grounded = false;
+		this.timeSinceGrounded = 999;
+		this.timeSinceLanding = 999;
+		this.jumpBufferT = 999;
 		this.jumpChain = 0;
-		this.state = 'airborne';
+		this.chainOnLanding = 0;
+		this.wallNormal = null;
+		this.timeSinceWall = 999;
 		this.ledgePos = null;
+		this.ledgeGrabCooldown = 0;
+		this.skidT = 999;
+		this.pitchAngle = 0;
+		this.yawSpin = 0;
+		this.crouching = false;
+		this.state = 'airborne';
 	}
 
 	step(dt: number, input: InputState, physics: Physics): void {
@@ -178,9 +191,9 @@ export class Player {
 
 		// Update state based on grounded context.
 		if (this.grounded) {
-			if (slopeTooSteep) this.state = 'slope_slide';
-			else if (wantsCrouchSlide || wantsDashSlide || this.state === 'crouch_slide') {
-				// Enter/stay in crouch_slide while crouch held and moving.
+			if (slopeTooSteep) {
+				this.state = 'slope_slide';
+			} else if (wantsCrouchSlide || wantsDashSlide || this.state === 'crouch_slide') {
 				const sliding =
 					input.crouchHeld &&
 					Math.hypot(this.velocity.x, this.velocity.z) > 0.5;
@@ -188,7 +201,7 @@ export class Player {
 			} else if (this.state === 'skid') {
 				this.skidT += dt;
 				if (this.skidT >= config.skidDurationMs / 1000) this.state = 'grounded';
-			} else if (this.state !== 'slope_slide' && this.state !== 'crouch_slide') {
+			} else {
 				this.state = 'grounded';
 			}
 		}
@@ -536,22 +549,32 @@ export class Player {
 		let yaw = this.facingYaw;
 		let targetScaleY = 1;
 
-		if (this.state === 'long_jump' || this.state === 'dive') {
-			this.pitchAngle = lerpToward(this.pitchAngle, Math.PI / 2, 10 * dt);
+		// Sign convention (YXZ order, pitch around local X):
+		//   +pitch = back-lean / backward somersault (head tips backward toward +Z)
+		//   -pitch = forward lean / forward somersault (head tips forward toward -Z)
+		if (this.state === 'long_jump') {
+			// Mario 64 long jump: leaning forward ~60°, not fully horizontal
+			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 3, 10 * dt);
+			pitch = this.pitchAngle;
+		} else if (this.state === 'dive') {
+			// Superman: full horizontal, belly down, head forward
+			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 2, 12 * dt);
 			pitch = this.pitchAngle;
 		} else if (this.state === 'backflip') {
-			this.pitchAngle -= 8 * dt;
+			// Backward somersault: pitch INCREASES (+direction)
+			this.pitchAngle += 8 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'side_flip') {
-			this.yawSpin += 10 * dt;
-			this.pitchAngle += 4 * dt;
+			// Forward somersault, quick (≈2 rot/s). Facing already flipped by velocity.
+			this.pitchAngle -= 12 * dt;
 			pitch = this.pitchAngle;
-			yaw = this.facingYaw + this.yawSpin;
 		} else if (this.state === 'ground_pound') {
-			this.pitchAngle += 18 * dt;
+			// Forward tumble on way down
+			this.pitchAngle -= 18 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'airborne' && this.jumpChain === 3) {
-			this.pitchAngle += 6.5 * dt;
+			// Triple jump forward somersault
+			this.pitchAngle -= 6.5 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'wall_slide' && this.wallNormal) {
 			yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
@@ -576,7 +599,11 @@ export class Player {
 			pitch = this.pitchAngle;
 			targetScaleY = 0.7;
 		} else {
-			// Grounded or plain airborne — decay flip rotation back to 0.
+			// Grounded or plain airborne — normalize accumulated rotation to [-π, π]
+			// first so the decay doesn't have to "unwind" multiple full rotations,
+			// then lerp back to upright.
+			const tau = Math.PI * 2;
+			this.pitchAngle = ((this.pitchAngle + Math.PI) % tau + tau) % tau - Math.PI;
 			this.pitchAngle = lerpToward(this.pitchAngle, 0, 12 * dt);
 			this.yawSpin = lerpToward(this.yawSpin, 0, 8 * dt);
 			pitch = this.pitchAngle;
@@ -660,8 +687,8 @@ export class Player {
 			return 'grass';
 		}
 		this.slopeNormal.set(best.normal.x, best.normal.y, best.normal.z);
-		const col = world.getCollider(best.collider);
-		if (col && col.friction() < 0.1) return 'ice';
+		// best.collider is already a Collider instance (not a handle)
+		if (best.collider.friction() < 0.1) return 'ice';
 		return 'grass';
 	}
 
