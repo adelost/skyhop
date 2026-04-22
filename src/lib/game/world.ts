@@ -50,6 +50,8 @@ export type MovingPlatform = {
 	amp: number;
 	axis: 'x' | 'y' | 'z';
 	speed: number;
+	lastPos: THREE.Vector3; // for carry-delta tracking
+	delta: THREE.Vector3; // this frame's displacement (newPos − lastPos)
 };
 
 export function buildWorld(
@@ -106,7 +108,9 @@ export function buildWorld(
 			base: new THREE.Vector3(...pos),
 			amp: 3,
 			axis: 'y',
-			speed: 0.8
+			speed: 0.8,
+			lastPos: new THREE.Vector3(...pos),
+			delta: new THREE.Vector3()
 		});
 	}
 
@@ -124,6 +128,10 @@ export function updateMovingPlatforms(
 		if (m.axis === 'x') target.x += offset;
 		else if (m.axis === 'y') target.y += offset;
 		else target.z += offset;
+
+		// Delta this tick = target − lastPos (used by player to get carried)
+		m.delta.subVectors(target, m.lastPos);
+		m.lastPos.copy(target);
 
 		const body = physics.world.getRigidBody(m.bodyHandle);
 		if (body) body.setNextKinematicTranslation({ x: target.x, y: target.y, z: target.z });

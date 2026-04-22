@@ -84,8 +84,12 @@ export const config = $state({
 	wallSlideGravityMult: 0.35,
 
 	// Ledge grab reach (how far forward + up to scan).
-	ledgeForwardReach: 0.7,
-	ledgeUpReach: 0.6
+	ledgeForwardReach: 1.0,
+	ledgeUpReach: 1.0,
+	ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
+
+	// Wall-kick lockout: can't re-kick the same wall for this duration.
+	sameWallLockoutMs: 500
 });
 
 export type Config = typeof config;

@@ -134,6 +134,8 @@ export class Game {
 		while (this.accumulator >= FIXED_DT && steps < MAX_STEPS) {
 			this.simTime += FIXED_DT;
 			updateMovingPlatforms(this.movingPlatforms, this.physics, this.simTime);
+			// Carry player with any platform they're standing on (uses this tick's delta)
+			this.player.carryOnPlatform(this.movingPlatforms, this.physics);
 			this.input.setCameraYaw(this.cameraYaw);
 			const snap = this.input.sample();
 			this.player.step(FIXED_DT, snap, this.physics);

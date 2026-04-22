@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Physics } from './physics';
 import type { InputState } from './input';
+import type { MovingPlatform } from './world';
 import { config } from './config.svelte';
 
 const RADIUS = 0.4;
@@ -60,6 +61,8 @@ export class Player {
 
 	private wallNormal: { x: number; z: number } | null = null;
 	private timeSinceWall = 999;
+	private lastWallKickNormal: { x: number; z: number } | null = null;
+	private timeSinceWallKick = 999;
 
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	private ledgeGrabCooldown = 0;
@@ -121,6 +124,34 @@ export class Player {
 		this.controller.setMaxSlopeClimbAngle((60 * Math.PI) / 180);
 	}
 
+	/**
+	 * Inherit this-frame translation of whatever moving platform the player is
+	 * standing on. Called from engine loop AFTER platforms update and BEFORE
+	 * player.step, so player's movement starts from the carried position.
+	 */
+	carryOnPlatform(platforms: MovingPlatform[], physics: Physics): void {
+		if (!this.grounded || platforms.length === 0) return;
+		const { world, rapier } = physics;
+		const origin = this.body.translation();
+		const ray = new rapier.Ray(
+			{ x: origin.x, y: origin.y + 0.1, z: origin.z },
+			{ x: 0, y: -1, z: 0 }
+		);
+		const hit = world.castRay(ray, HEIGHT + 0.5, true, undefined, undefined, this.collider);
+		if (!hit) return;
+		const parentBody = hit.collider.parent();
+		if (!parentBody) return;
+		for (const p of platforms) {
+			if (parentBody.handle === p.bodyHandle) {
+				this.body.setTranslation(
+					{ x: origin.x + p.delta.x, y: origin.y + p.delta.y, z: origin.z + p.delta.z },
+					true
+				);
+				return;
+			}
+		}
+	}
+
 	respawn(): void {
 		this.body.setTranslation({ x: this.startPos.x, y: this.startPos.y, z: this.startPos.z }, true);
 		this.velocity.set(0, 0, 0);
@@ -133,6 +164,8 @@ export class Player {
 		this.chainOnLanding = 0;
 		this.wallNormal = null;
 		this.timeSinceWall = 999;
+		this.lastWallKickNormal = null;
+		this.timeSinceWallKick = 999;
 		this.ledgePos = null;
 		this.ledgeGrabCooldown = 0;
 		this.skidT = 999;
@@ -271,17 +304,29 @@ export class Player {
 		// Jump buffer
 		if (input.jumpPressed) this.jumpBufferT = 0;
 		else this.jumpBufferT += dt;
+		this.timeSinceWallKick += dt;
 
 		const coyoteSec = config.coyoteMs / 1000;
 		const bufferSec = config.bufferMs / 1000;
 		const wallStickSec = config.wallStickMs / 1000;
 		const canGroundJump =
 			this.timeSinceGrounded <= coyoteSec && this.jumpBufferT <= bufferSec;
+
+		// Same-wall lockout: after kicking off a wall, can't kick the same face
+		// within sameWallLockoutMs. M64 enforces alternation so chains aren't abused.
+		const sameWallLockout =
+			!!this.lastWallKickNormal &&
+			!!this.wallNormal &&
+			this.timeSinceWallKick < config.sameWallLockoutMs / 1000 &&
+			this.lastWallKickNormal.x * this.wallNormal.x +
+				this.lastWallKickNormal.z * this.wallNormal.z >
+				0.9;
 		const canWallKick =
 			!this.grounded &&
 			!!this.wallNormal &&
 			this.timeSinceWall <= wallStickSec &&
-			this.jumpBufferT <= bufferSec;
+			this.jumpBufferT <= bufferSec &&
+			!sameWallLockout;
 
 		if (canWallKick) {
 			this.executeWallKick();
@@ -363,29 +408,25 @@ export class Player {
 		// Apply slope physics for slope_slide state (after grounded updates)
 		this.applySlopePhysics(dt);
 
-		// Wall detection (airborne)
+		// Wall detection (capture contact only — state change happens after ledge check).
 		this.timeSinceWall += dt;
 		const wallHit = this.grounded ? null : this.queryWallContact(physics);
 		if (wallHit) {
 			this.wallNormal = wallHit;
 			this.timeSinceWall = 0;
-			if (this.velocity.y < 0 && this.state !== 'ground_pound' && this.state !== 'dive') {
-				this.state = 'wall_slide';
-				this.velocity.y = Math.max(this.velocity.y, -2.5);
-			}
 		}
 
-		// Ledge grab attempt. Strict gates to avoid false positives:
-		//   - airborne & actually falling (not just drifting down near peak)
-		//   - not mid-special-air (dive/pound skip ledge)
-		//   - velocity horizontally directed INTO wall (not away / past)
-		//   - ledge top must be above chest (so jumping off a platform doesn't snag its edge)
+		// Ledge grab FIRST so wall_slide doesn't lock us out. Allow from both
+		// airborne and wall_slide (sliding players should be able to snag a ledge).
 		const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
+		const ledgeEligibleState =
+			this.state === 'airborne' || this.state === 'wall_slide';
 		if (
-			this.state === 'airborne' &&
-			this.velocity.y < -2 &&
-			horizSp > 0.5 &&
-			this.ledgeGrabCooldown <= 0
+			!this.grounded &&
+			ledgeEligibleState &&
+			this.velocity.y < -config.ledgeMinFallSpeed &&
+			this.ledgeGrabCooldown <= 0 &&
+			(horizSp > 0.5 || !!this.wallNormal)
 		) {
 			const ledge = this.tryLedgeGrab(physics);
 			if (ledge) {
@@ -398,6 +439,12 @@ export class Player {
 				this.mesh.position.set(ledge.x, ledge.y, ledge.z);
 				return;
 			}
+		}
+
+		// Now commit wall_slide state if we didn't grab anything.
+		if (wallHit && this.velocity.y < 0 && this.state !== 'ground_pound' && this.state !== 'dive') {
+			this.state = 'wall_slide';
+			this.velocity.y = Math.max(this.velocity.y, -2.5);
 		}
 
 		// Commit movement
@@ -459,15 +506,19 @@ export class Player {
 		const chestY = origin.y + 0.1;
 		const headY = origin.y + HEIGHT / 2 + config.ledgeUpReach;
 
-		// Prefer horizontal-velocity direction for ledge "forward" so wall-drift
-		// past a cliff edge (velocity parallel to cliff) doesn't false-grab.
-		const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
-		if (horizSp < 0.5) return null;
-		const fwd = new THREE.Vector3(
-			this.velocity.x / horizSp,
-			0,
-			this.velocity.z / horizSp
-		);
+		// Forward direction: prefer wall normal if we already know about a wall
+		// (wall_slide state), else use horizontal velocity. Guards against
+		// sideways-drift false positives + works when sliding down a wall.
+		let fwd: THREE.Vector3;
+		if (this.wallNormal) {
+			// wallNormal points AWAY from wall → into wall = -wallNormal
+			const invLen = 1 / Math.hypot(this.wallNormal.x, this.wallNormal.z);
+			fwd = new THREE.Vector3(-this.wallNormal.x * invLen, 0, -this.wallNormal.z * invLen);
+		} else {
+			const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
+			if (horizSp < 0.5) return null;
+			fwd = new THREE.Vector3(this.velocity.x / horizSp, 0, this.velocity.z / horizSp);
+		}
 		const reach = config.ledgeForwardReach;
 
 		// 1. Chest ray must hit a wall (vertical surface).
@@ -573,14 +624,15 @@ export class Player {
 			this.pitchAngle -= 6.5 * dt;
 			pitch = this.pitchAngle;
 		} else if (this.state === 'wall_slide' && this.wallNormal) {
+			// Override LOCAL yaw for this frame's render only. Don't touch
+			// this.facingYaw — camera auto-recenter tracks it and would jitter
+			// toward the wall direction otherwise.
 			yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
-			this.facingYaw = yaw;
 			pitch = -Math.PI / 10;
 			this.pitchAngle = 0;
 		} else if (this.state === 'ledge_hang') {
 			if (this.wallNormal) {
 				yaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
-				this.facingYaw = yaw;
 			}
 			pitch = -Math.PI / 8;
 			this.pitchAngle = 0;
@@ -747,6 +799,9 @@ export class Player {
 
 	private executeWallKick(): void {
 		if (!this.wallNormal) return;
+		// Remember this wall so we can't chain-kick the same face.
+		this.lastWallKickNormal = { x: this.wallNormal.x, z: this.wallNormal.z };
+		this.timeSinceWallKick = 0;
 		this.velocity.y = config.wallKickVelY;
 		this.velocity.x = this.wallNormal.x * config.wallKickVelXZ;
 		this.velocity.z = this.wallNormal.z * config.wallKickVelXZ;
@@ -755,7 +810,6 @@ export class Player {
 		this.jumpBufferT = 999;
 		this.wallNormal = null;
 		this.timeSinceWall = 999;
-		// Face away from wall
 		this.targetYaw = Math.atan2(-this.velocity.x, -this.velocity.z);
 	}
 
