@@ -1,0 +1,34 @@
+{
+	"name": "skyhop",
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev --host",
+		"build": "vite build",
+		"preview": "vite preview",
+		"check": "svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"dependencies": {
+		"@dimforge/rapier3d-compat": "^0.14.0",
+		"nipplejs": "^0.10.2",
+		"three": "^0.170.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.6",
+		"@sveltejs/adapter-cloudflare": "^5.0.0",
+		"@sveltejs/kit": "^2.7.3",
+		"@sveltejs/vite-plugin-svelte": "^4.0.0",
+		"@types/three": "^0.170.0",
+		"svelte": "^5.0.0",
+		"svelte-check": "^4.0.0",
+		"tslib": "^2.8.1",
+		"typescript": "^5.6.3",
+		"vite": "^5.4.10",
+		"vitest": "^2.0.0"
+	}
+}
