@@ -19,14 +19,14 @@ export class Input {
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.repeat) return;
 			this.keys.add(e.code);
-			if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+			if (e.code === 'Space') {
 				this.jumpQueued = true;
 				this.jumpHeld = true;
 			}
 		};
 		const onKeyUp = (e: KeyboardEvent) => {
 			this.keys.delete(e.code);
-			if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+			if (e.code === 'Space') {
 				this.jumpHeld = false;
 			}
 		};
