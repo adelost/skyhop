@@ -71,8 +71,10 @@ export const config = $state({
 
 	// Character facing rotation (visual). Lerp rad/s and skid-turn duration.
 	rotationSpeed: 12,
-	skidReverseDeg: 135,
-	skidDurationMs: 150,
+	skidReverseDeg: 120, // trigger threshold (degrees of input reversal)
+	skidDurationMs: 350, // M64 ~10-15 frames, speed-dep; we use flat avg
+	skidVelocityCut: 0.7, // how much to preserve on entry (was abrupt 0.5)
+	skidLeanDeg: 30, // back-lean during skid (visual brake pose)
 
 	// Running-jump height bonus (M64 single = +0.25 × fVel).
 	runJumpBonus: 0.25,

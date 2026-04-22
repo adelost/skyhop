@@ -226,7 +226,8 @@ export class Player {
 			this.velocity.x = approach(this.velocity.x, targetX, accelRate * dt);
 			this.velocity.z = approach(this.velocity.z, targetZ, accelRate * dt);
 
-			// Skid-turn detection: while grounded + fast + input reverses direction.
+			// Skid-turn detection: grounded + fast + input reverses direction.
+			// M64 uses this window to allow A-press = side flip. Visual: lean back + freeze.
 			const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
 			if (this.grounded && this.state === 'grounded' && horizSp > 4 && hasInput) {
 				const inputYaw = Math.atan2(-mx, -mz);
@@ -235,20 +236,17 @@ export class Player {
 					this.state = 'skid';
 					this.skidT = 0;
 					this.targetYaw = inputYaw;
-					// Kill incoming accel — player brakes briefly
-					this.velocity.x *= 0.5;
-					this.velocity.z *= 0.5;
+					// Preserve some momentum — player keeps skidding a bit before turning
+					this.velocity.x *= config.skidVelocityCut;
+					this.velocity.z *= config.skidVelocityCut;
 				}
 			}
 		}
 
-		// Slide surfaces: friction-decay on crouch-slide (gentle), but slope-slide ignores friction.
+		// Crouch-slide: gentle friction decay + downhill boost if on slope.
 		if (this.state === 'crouch_slide') {
-			// Gentle friction decay (keep momentum feel)
-			const f = 0.9 * dt;
 			this.velocity.x = approach(this.velocity.x, 0, 5 * dt);
 			this.velocity.z = approach(this.velocity.z, 0, 5 * dt);
-			// Apply slope-along if on slope (preserves gliding downhill)
 			if (this.slopeAngleDeg >= 5) {
 				const g = new THREE.Vector3(0, config.gravity, 0);
 				const n = this.slopeNormal.clone().normalize();
@@ -256,8 +254,6 @@ export class Player {
 				this.velocity.x += gAlong.x * dt * 0.7;
 				this.velocity.z += gAlong.z * dt * 0.7;
 			}
-			// Suppress unused: avoid TS error for f
-			void f;
 		}
 
 		this.timeSinceGrounded += dt;
@@ -588,14 +584,19 @@ export class Player {
 			}
 			pitch = -Math.PI / 8;
 			this.pitchAngle = 0;
+		} else if (this.state === 'skid') {
+			// Brake pose — lean back, feet skidding forward. Visual-only until skid ends.
+			const targetLean = (config.skidLeanDeg * Math.PI) / 180;
+			this.pitchAngle = lerpToward(this.pitchAngle, targetLean, 10 * dt);
+			pitch = this.pitchAngle;
 		} else if (this.state === 'crouch_slide') {
 			// Belly slide — body flat, face-down, nose forward.
-			this.pitchAngle = lerpToward(this.pitchAngle, Math.PI / 2, 12 * dt);
+			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 2, 12 * dt);
 			pitch = this.pitchAngle;
 			targetScaleY = 0.55;
 		} else if (this.state === 'slope_slide') {
-			// Forced slide on steep slope — sitting pose, leaning back.
-			this.pitchAngle = lerpToward(this.pitchAngle, -Math.PI / 5, 10 * dt);
+			// Forced slide on steep slope — sitting pose, leaning BACK (+pitch).
+			this.pitchAngle = lerpToward(this.pitchAngle, Math.PI / 5, 10 * dt);
 			pitch = this.pitchAngle;
 			targetScaleY = 0.7;
 		} else {
