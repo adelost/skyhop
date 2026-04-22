@@ -355,10 +355,16 @@ export class Player {
 			}
 		}
 
-		// Ledge grab attempt (airborne falling + ledge in front)
+		// Ledge grab attempt. Strict gates to avoid false positives:
+		//   - airborne & actually falling (not just drifting down near peak)
+		//   - not mid-special-air (dive/pound skip ledge)
+		//   - velocity horizontally directed INTO wall (not away / past)
+		//   - ledge top must be above chest (so jumping off a platform doesn't snag its edge)
+		const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
 		if (
 			this.state === 'airborne' &&
-			this.velocity.y < 0 &&
+			this.velocity.y < -2 &&
+			horizSp > 0.5 &&
 			this.ledgeGrabCooldown <= 0
 		) {
 			const ledge = this.tryLedgeGrab(physics);
@@ -369,7 +375,6 @@ export class Player {
 				this.state = 'ledge_hang';
 				this.jumpChain = 0;
 				haptic(30);
-				// Don't continue normal movement; ledge_hang will take over next frame.
 				this.mesh.position.set(ledge.x, ledge.y, ledge.z);
 				return;
 			}
@@ -431,12 +436,22 @@ export class Player {
 	private tryLedgeGrab(physics: Physics): { x: number; y: number; z: number } | null {
 		const { world, rapier } = physics;
 		const origin = this.body.translation();
-		// Only grab when moving "toward" a wall — use facing yaw for forward direction
-		const fwd = new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
+		const chestY = origin.y + 0.1;
+		const headY = origin.y + HEIGHT / 2 + config.ledgeUpReach;
+
+		// Prefer horizontal-velocity direction for ledge "forward" so wall-drift
+		// past a cliff edge (velocity parallel to cliff) doesn't false-grab.
+		const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
+		if (horizSp < 0.5) return null;
+		const fwd = new THREE.Vector3(
+			this.velocity.x / horizSp,
+			0,
+			this.velocity.z / horizSp
+		);
 		const reach = config.ledgeForwardReach;
 
-		// 1. Cast from chest forward → must hit wall
-		const chestOrigin = { x: origin.x, y: origin.y + 0.1, z: origin.z };
+		// 1. Chest ray must hit a wall (vertical surface).
+		const chestOrigin = { x: origin.x, y: chestY, z: origin.z };
 		const rayChest = new rapier.Ray(chestOrigin, { x: fwd.x, y: 0, z: fwd.z });
 		const chestHit = world.castRayAndGetNormal(
 			rayChest,
@@ -446,18 +461,18 @@ export class Player {
 			undefined,
 			this.collider
 		);
-		if (!chestHit || Math.abs(chestHit.normal.y) > 0.5) return null;
+		if (!chestHit || Math.abs(chestHit.normal.y) > 0.3) return null;
 
-		// 2. Cast from above head forward → must miss (empty air above wall)
-		const headOrigin = {
-			x: origin.x,
-			y: origin.y + HEIGHT / 2 + config.ledgeUpReach,
-			z: origin.z
-		};
+		// Velocity must face INTO the wall (dot-product with inward normal > threshold).
+		const intoWall = fwd.x * -chestHit.normal.x + fwd.z * -chestHit.normal.z;
+		if (intoWall < 0.4) return null;
+
+		// 2. Head-level ray must MISS (otherwise wall is too tall — no ledge).
+		const headOrigin = { x: origin.x, y: headY, z: origin.z };
 		const rayHead = new rapier.Ray(headOrigin, { x: fwd.x, y: 0, z: fwd.z });
 		const headHit = world.castRay(
 			rayHead,
-			reach + 0.1,
+			reach + 0.15,
 			true,
 			undefined,
 			undefined,
@@ -465,12 +480,10 @@ export class Player {
 		);
 		if (headHit) return null;
 
-		// 3. Cast down from above the wall to find its top
-		const aboveWall = {
-			x: origin.x + fwd.x * (reach + 0.05),
-			y: origin.y + HEIGHT / 2 + config.ledgeUpReach,
-			z: origin.z + fwd.z * (reach + 0.05)
-		};
+		// 3. Probe down from just past the wall to find the ledge top.
+		const probeX = origin.x + fwd.x * (chestHit.timeOfImpact + 0.1);
+		const probeZ = origin.z + fwd.z * (chestHit.timeOfImpact + 0.1);
+		const aboveWall = { x: probeX, y: headY, z: probeZ };
 		const rayDown = new rapier.Ray(aboveWall, { x: 0, y: -1, z: 0 });
 		const downHit = world.castRayAndGetNormal(
 			rayDown,
@@ -482,11 +495,16 @@ export class Player {
 		);
 		if (!downHit || downHit.normal.y < 0.7) return null;
 
-		// Ledge top Y
 		const ledgeY = aboveWall.y - downHit.timeOfImpact;
-		// Snap player so chest is just below ledge top, slightly off the wall
+
+		// CRITICAL: ledge top must be ABOVE player chest. Otherwise this is a cliff
+		// edge we are falling past (e.g. jumping off a platform) — not a grab target.
+		if (ledgeY <= chestY) return null;
+
+		// Also: don't grab ledges higher than we can realistically reach.
+		if (ledgeY - chestY > config.ledgeUpReach + HEIGHT / 2) return null;
+
 		const grabY = ledgeY - HEIGHT / 2 - 0.05;
-		// Position at wall-hit minus RADIUS gap
 		const wallX = origin.x + fwd.x * chestHit.timeOfImpact;
 		const wallZ = origin.z + fwd.z * chestHit.timeOfImpact;
 		return {
