@@ -38,6 +38,7 @@
 		<span class="v">{fmt(info.vx)} {fmt(info.vy)} {fmt(info.vz)}</span>
 	</div>
 	<div class="row"><span class="k">speed</span> <span class="v">{fmt(info.speed)}</span></div>
+	<div class="row"><span class="k">slope</span> <span class="v">{info.slopeAngleDeg.toFixed(1)}°</span></div>
 	<div class="row"><span class="k">grnd</span> <span class="v">{info.grounded ? '✓' : '—'}</span></div>
 	<div class="row"><span class="k">fps</span> <span class="v">{info.fps}</span></div>
 </div>

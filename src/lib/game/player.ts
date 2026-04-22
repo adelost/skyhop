@@ -532,14 +532,56 @@ export class Player {
 		}
 		const { world, rapier } = physics;
 		const origin = this.body.translation();
-		const ray = new rapier.Ray({ x: origin.x, y: origin.y, z: origin.z }, { x: 0, y: -1, z: 0 });
-		const hit = world.castRayAndGetNormal(ray, HEIGHT, true, undefined, undefined, this.collider);
-		if (!hit) {
+
+		// Cast from above player center down a long way so capsule-on-slope contact
+		// (which can be off-center for steep slopes) still registers.
+		const rayOrigin = { x: origin.x, y: origin.y + RADIUS, z: origin.z };
+		const ray = new rapier.Ray(rayOrigin, { x: 0, y: -1, z: 0 });
+		const maxReach = HEIGHT + RADIUS * 2 + 0.5; // comfortable over-reach
+		let best = world.castRayAndGetNormal(
+			ray,
+			maxReach,
+			true,
+			undefined,
+			undefined,
+			this.collider
+		);
+
+		// Fallback: probe slightly offset in the 4 cardinal directions so steep slopes
+		// (where contact is laterally offset) are never missed.
+		if (!best || best.normal.y > 0.999) {
+			const offsets: [number, number][] = [
+				[RADIUS * 0.6, 0],
+				[-RADIUS * 0.6, 0],
+				[0, RADIUS * 0.6],
+				[0, -RADIUS * 0.6]
+			];
+			for (const [ox, oz] of offsets) {
+				const probe = new rapier.Ray(
+					{ x: origin.x + ox, y: origin.y + RADIUS, z: origin.z + oz },
+					{ x: 0, y: -1, z: 0 }
+				);
+				const h = world.castRayAndGetNormal(
+					probe,
+					maxReach,
+					true,
+					undefined,
+					undefined,
+					this.collider
+				);
+				if (h && (!best || h.normal.y < best.normal.y)) {
+					// Prefer hits with lower normal.y (more slope)
+					best = h;
+				}
+			}
+		}
+
+		if (!best) {
 			this.slopeNormal.set(0, 1, 0);
 			return 'grass';
 		}
-		this.slopeNormal.set(hit.normal.x, hit.normal.y, hit.normal.z);
-		const col = world.getCollider(hit.collider);
+		this.slopeNormal.set(best.normal.x, best.normal.y, best.normal.z);
+		const col = world.getCollider(best.collider);
 		if (col && col.friction() < 0.1) return 'ice';
 		return 'grass';
 	}
