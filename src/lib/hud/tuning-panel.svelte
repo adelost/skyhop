@@ -55,6 +55,8 @@
 		{ key: 'ledgeClimbCommitMs', min: 0, max: 500, step: 10 },
 		{ key: 'ledgeClimbDurationMs', min: 100, max: 1000, step: 20 },
 		{ key: 'sideFlipVelXZ', min: 0, max: 15, step: 0.1 },
+		{ key: 'sideFlipRotationDuration', min: 0.1, max: 1.2, step: 0.05 },
+		{ key: 'sideFlipYawSpinRate', min: 0, max: 20, step: 0.5 },
 		{ key: 'camLookAheadDist', min: 0, max: 8, step: 0.1 },
 		{ key: 'camLookAheadSpeedRef', min: 2, max: 20, step: 0.5 },
 		{ key: 'camYStabilizeMs', min: 0, max: 1000, step: 10 },
@@ -122,6 +124,8 @@
 		config.diveVelY = 0;
 		config.diveVelXZ = 14.4;
 		config.sideFlipVelXZ = 2.4;
+		config.sideFlipRotationDuration = 0.5;
+		config.sideFlipYawSpinRate = 8;
 		config.camYawSensitivity = 0.006;
 		config.camPitchSensitivity = 0.004;
 		config.camDistance = 10;

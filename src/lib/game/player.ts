@@ -96,6 +96,11 @@ export class Player {
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
 	private groundPoundStartT = 0;
+	// Seconds since the current state was entered. Reset each time state
+	// changes (detected in updateVisuals). Used for phase-based rotation
+	// curves (side_flip roll, triple/backflip somersault).
+	private stateTime = 0;
+	private prevVisState: PlayerState = "airborne";
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -809,6 +814,12 @@ export class Player {
 	}
 
 	private updateVisuals(dt: number): void {
+		if (this.state !== this.prevVisState) {
+			this.stateTime = 0;
+			this.prevVisState = this.state;
+		} else {
+			this.stateTime += dt;
+		}
 		const pose = computePose({
 			state: this.state,
 			dt,
@@ -823,11 +834,17 @@ export class Player {
 			crouching: this.crouching,
 			currentScaleY: this.visualGroup.scale.y,
 			landingSquashT: this.landingSquashT,
+			stateTime: this.stateTime,
 		});
 		this.facingYaw = pose.facingYaw;
 		this.pitchAngle = pose.pitchAngle;
 		this.yawSpin = pose.yawSpin;
-		this.visualGroup.rotation.set(pose.renderPitch, pose.renderYaw, 0, "YXZ");
+		this.visualGroup.rotation.set(
+			pose.renderPitch,
+			pose.renderYaw,
+			pose.renderRoll,
+			"YXZ",
+		);
 		this.visualGroup.scale.y = pose.scaleY;
 		this.visualGroup.position.y = pose.offsetY;
 

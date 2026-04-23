@@ -20,6 +20,9 @@ export type PoseInput = {
 	crouching: boolean;
 	currentScaleY: number;
 	landingSquashT: number; // decaying squash on hard landing
+	// Seconds since the current state was entered. Used for phase-based rotation
+	// curves (side_flip roll, etc). Reset by caller when state changes.
+	stateTime: number;
 };
 
 export type PoseOutput = {
@@ -28,6 +31,7 @@ export type PoseOutput = {
 	yawSpin: number;
 	renderYaw: number;
 	renderPitch: number;
+	renderRoll: number;
 	scaleY: number;
 	offsetY: number;
 };
@@ -66,6 +70,7 @@ export function computePose(input: PoseInput): PoseOutput {
 
 	let renderPitch = 0;
 	let renderYaw = newFacingYaw;
+	let renderRoll = 0;
 	let targetScaleY = 1;
 
 	if (state === "long_jump") {
@@ -78,8 +83,18 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle += 8 * dt;
 		renderPitch = pitchAngle;
 	} else if (state === "side_flip") {
-		pitchAngle -= 12 * dt;
+		// M64 side flip is MARIO_ANIM_SLIDEFLIP: a sideways roll plus extra yaw
+		// spin, not a forward somersault. Phase-ease the roll over the full
+		// duration so it starts and ends softly. Yaw-spin decays over the first
+		// half to sell the pirouette without over-rotating.
+		const dur = Math.max(0.001, config.sideFlipRotationDuration);
+		const t = Math.min(1, input.stateTime / dur);
+		renderRoll = easeInOutSine(t) * -(Math.PI * 2);
+		pitchAngle = lerpToward(pitchAngle, 0, 12 * dt);
 		renderPitch = pitchAngle;
+		const spinFrac = Math.max(0, 1 - t * 2);
+		yawSpin += config.sideFlipYawSpinRate * dt * spinFrac;
+		renderYaw = newFacingYaw + yawSpin;
 	} else if (state === "ground_pound_start") {
 		// M64: one full forward somersault over the startup window, then the
 		// code below lerps back to upright for the slam. Rate is 2π / startupSec
@@ -159,9 +174,14 @@ export function computePose(input: PoseInput): PoseOutput {
 		yawSpin,
 		renderYaw,
 		renderPitch,
+		renderRoll,
 		scaleY,
 		offsetY,
 	};
+}
+
+function easeInOutSine(t: number): number {
+	return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
 function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {

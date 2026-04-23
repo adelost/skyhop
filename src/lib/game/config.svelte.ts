@@ -56,6 +56,11 @@ export const config = $state({
 	backflipVelXZ: -4.8,
 	sideFlipVelY: 18.6,
 	sideFlipVelXZ: 2.4, // M64: 8 u/f = 2.4 m/s. Own setting, decoupled from long jump.
+	// Side flip visual: one full sideways roll over this duration (phase-eased),
+	// plus a yaw-spin during the first half to sell the pirouette. M64 uses
+	// MARIO_ANIM_SLIDEFLIP which is roll + yaw, not forward pitch.
+	sideFlipRotationDuration: 0.5,
+	sideFlipYawSpinRate: 8,
 	wallKickVelY: 18.6,
 	wallKickVelXZ: 7.2,
 	// M64 wall-kick window = 2 frames "instant" (ACT_AIR_HIT_WALL) + 5 frames
