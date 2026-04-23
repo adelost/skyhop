@@ -194,7 +194,11 @@ export function verifyLedgeAt(
 ): boolean {
 	if (!wallNormal) return false;
 	const { world, rapier } = physics;
-	const chestY = pos.y + 0.1;
+	// Chest ray sits just below the ledge top (pos.y is grabY = ledgeTop - 0.45,
+	// so +0.35 = ledgeTop - 0.1). This stays inside any platform with thickness
+	// ≥ 0.1m — including the 0.3m "ceiling" slab. At +0.1 (old value) the ray
+	// was BELOW thin platforms entirely, so shimmy verify always failed on them.
+	const chestY = pos.y + 0.35;
 	const headY = pos.y + HEIGHT / 2 + config.ledgeUpReach;
 	const fwd = new THREE.Vector3(-wallNormal.x, 0, -wallNormal.z).normalize();
 	const reach = config.ledgeForwardReach + 0.1;
