@@ -84,7 +84,12 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 2, 12 * dt);
 		renderPitch = pitchAngle;
 	} else if (state === "backflip") {
-		pitchAngle += 8 * dt;
+		// Phase-based backward somersault: easeInOutSine from 0 → +2π over
+		// the rotation window, then held at 2π (normalizes to 0 in display).
+		// Reads as a choreographed flip instead of a linear tumble.
+		const dur = Math.max(0.001, config.backflipRotationDuration);
+		const t = Math.min(1, input.stateTime / dur);
+		pitchAngle = easeInOutSine(t) * (Math.PI * 2);
 		renderPitch = pitchAngle;
 	} else if (state === "side_flip") {
 		// M64 side flip is MARIO_ANIM_SLIDEFLIP: a sideways roll plus extra yaw
@@ -113,7 +118,12 @@ export function computePose(input: PoseInput): PoseOutput {
 		renderPitch = pitchAngle;
 		targetScaleY = 0.92;
 	} else if (state === "airborne" && input.jumpChain === 3) {
-		pitchAngle -= 6.5 * dt;
+		// Triple jump: one full forward somersault (phase-eased) over the
+		// rotation window, then held. Matches M64 pacing where the spin
+		// starts and ends softly instead of spinning linearly.
+		const dur = Math.max(0.001, config.tripleRotationDuration);
+		const t = Math.min(1, input.stateTime / dur);
+		pitchAngle = easeInOutSine(t) * -(Math.PI * 2);
 		renderPitch = pitchAngle;
 	} else if (state === "wall_slide" && wallNormal) {
 		renderYaw = Math.atan2(wallNormal.x, wallNormal.z);

@@ -61,6 +61,11 @@ export const config = $state({
 	// MARIO_ANIM_SLIDEFLIP which is roll + yaw, not forward pitch.
 	sideFlipRotationDuration: 0.5,
 	sideFlipYawSpinRate: 8,
+	// Triple jump and backflip rotation: phase-based (easeInOutSine) instead
+	// of linear rate, so the somersault starts and ends softly — reads as a
+	// choreographed flip rather than a constant tumble.
+	tripleRotationDuration: 0.55,
+	backflipRotationDuration: 0.7,
 	wallKickVelY: 18.6,
 	wallKickVelXZ: 7.2,
 	// M64 wall-kick window = 2 frames "instant" (ACT_AIR_HIT_WALL) + 5 frames

@@ -57,6 +57,8 @@
 		{ key: 'sideFlipVelXZ', min: 0, max: 15, step: 0.1 },
 		{ key: 'sideFlipRotationDuration', min: 0.1, max: 1.2, step: 0.05 },
 		{ key: 'sideFlipYawSpinRate', min: 0, max: 20, step: 0.5 },
+		{ key: 'tripleRotationDuration', min: 0.2, max: 1.5, step: 0.05 },
+		{ key: 'backflipRotationDuration', min: 0.2, max: 1.5, step: 0.05 },
 		{ key: 'camLookAheadDist', min: 0, max: 8, step: 0.1 },
 		{ key: 'camLookAheadSpeedRef', min: 2, max: 20, step: 0.5 },
 		{ key: 'camYStabilizeMs', min: 0, max: 1000, step: 10 },
@@ -126,6 +128,8 @@
 		config.sideFlipVelXZ = 2.4;
 		config.sideFlipRotationDuration = 0.5;
 		config.sideFlipYawSpinRate = 8;
+		config.tripleRotationDuration = 0.55;
+		config.backflipRotationDuration = 0.7;
 		config.camYawSensitivity = 0.006;
 		config.camPitchSensitivity = 0.004;
 		config.camDistance = 10;
