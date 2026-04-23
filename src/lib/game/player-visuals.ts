@@ -18,6 +18,7 @@ export type PoseInput = {
 	timeSinceGrounded: number;
 	crouching: boolean;
 	currentScaleY: number;
+	landingSquashT: number; // decaying squash on hard landing
 };
 
 export type PoseOutput = {
@@ -127,7 +128,13 @@ export function computePose(input: PoseInput): PoseOutput {
 		targetScaleY = 0.55;
 	}
 
-	const scaleY = lerpToward(currentScaleY, targetScaleY, 15 * dt);
+	// Landing squash: multiply target scale down briefly right after a hard landing.
+	// landingSquashT decays linearly from its initial value toward 0 each frame.
+	const squashMaxT = 0.18;
+	const squashFrac = Math.max(0, Math.min(1, input.landingSquashT / squashMaxT));
+	const squashMult = 1 - squashFrac * 0.3; // 1.0 → 0.7 at peak squash
+
+	const scaleY = lerpToward(currentScaleY, targetScaleY * squashMult, 15 * dt);
 	const offsetY = -(1 - scaleY) * HALF_BODY;
 
 	return {

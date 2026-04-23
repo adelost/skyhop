@@ -4,6 +4,7 @@ import { Input } from './input';
 import { buildWorld, updateMovingPlatforms, type MovingPlatform } from './world';
 import { Player, type DebugInfo } from './player';
 import { config } from './config.svelte';
+import { BlobShadow, DustPool } from './effects';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 5;
@@ -44,6 +45,10 @@ export class Game {
 	// First-person mode
 	private firstPerson = false;
 
+	// Effects
+	private blobShadow!: BlobShadow;
+	private dustPool!: DustPool;
+
 	constructor(canvas: HTMLCanvasElement) {
 		const isMobile = matchMedia('(pointer: coarse)').matches;
 		this.renderer = new THREE.WebGLRenderer({
@@ -60,11 +65,15 @@ export class Game {
 
 		this.camera = new THREE.PerspectiveCamera(config.camFovBase, 1, 0.1, 200);
 
-		const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x3a5530, 0.7);
+		// Warmer sun + cooler sky for better color separation between lit/shaded sides
+		const hemi = new THREE.HemisphereLight(0xaed8ff, 0x445040, 0.55);
 		this.scene.add(hemi);
-		const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+		const sun = new THREE.DirectionalLight(0xfff1d0, 1.35);
 		sun.position.set(10, 20, 5);
 		this.scene.add(sun);
+		// Subtle ambient fill so shadowed sides don't go pitch black
+		const ambient = new THREE.AmbientLight(0xffffff, 0.1);
+		this.scene.add(ambient);
 	}
 
 	async init(): Promise<void> {
@@ -73,6 +82,8 @@ export class Game {
 		this.movingPlatforms = result.moving;
 		this.player = new Player(this.scene, this.physics, new THREE.Vector3(0, 2, 0));
 		this.stableTargetY = this.player.position.y;
+		this.blobShadow = new BlobShadow(this.scene);
+		this.dustPool = new DustPool(this.scene);
 		this.input.attach();
 		this.onResize();
 		window.addEventListener('resize', this.onResize);
@@ -192,10 +203,19 @@ export class Game {
 		}
 
 		this.player.sync();
-		// Detect pound-landing impact → trigger camera shake
+		// Consume one-shot player events → trigger shake + dust emissions
 		if (this.player.consumePoundImpact()) {
 			this.shakeT = config.camShakeDuration;
+			this.dustPool.emit(this.player.position, 12, 3, 3);
 		}
+		if (this.player.consumeLandEvent()) {
+			this.dustPool.emit(this.player.position, 5, 2, 1.5);
+		}
+		if (this.player.consumeSkidEvent()) {
+			this.dustPool.emit(this.player.position, 4, 1, 2.2);
+		}
+		this.blobShadow.update(this.physics, this.player.position, this.player.colliderRef);
+		this.dustPool.update(dt);
 		this.updateCamera(dt);
 		this.renderer.render(this.scene, this.camera);
 	};

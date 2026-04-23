@@ -80,8 +80,12 @@ export class Player {
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	private ledgeGrabCooldown = 0;
 
-	// One-shot event flag consumed by engine (camera shake on pound landing).
+	// One-shot event flags consumed by engine for effects (shake, dust).
 	private poundImpactPending = false;
+	private landImpactPending = false;
+	private skidStartPending = false;
+	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
+	private landingSquashT = 0;
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -167,12 +171,17 @@ export class Player {
 		this.pitchAngle = 0;
 		this.yawSpin = 0;
 		this.crouching = false;
+		this.poundImpactPending = false;
+		this.landImpactPending = false;
+		this.skidStartPending = false;
+		this.landingSquashT = 0;
 		this.state = 'airborne';
 	}
 
 	step(dt: number, input: InputState, physics: Physics): void {
 		// Track crouch for visual purposes (outlives input frame)
 		this.crouching = input.crouchHeld;
+		if (this.landingSquashT > 0) this.landingSquashT = Math.max(0, this.landingSquashT - dt);
 
 		// Query slope/surface FIRST so this frame's movement knows about it.
 		this.surface = this.grounded
@@ -266,6 +275,7 @@ export class Player {
 				if (Math.abs(deltaYaw) > (config.skidReverseDeg * Math.PI) / 180) {
 					this.state = 'skid';
 					this.skidT = 0;
+					this.skidStartPending = true;
 					this.targetYaw = inputYaw;
 					// Preserve some momentum — player keeps skidding a bit before turning
 					this.velocity.x *= config.skidVelocityCut;
@@ -381,7 +391,13 @@ export class Player {
 		this.grounded = this.controller.computedGrounded();
 		if (this.grounded) {
 			if (!wasGrounded) {
-				const fellFast = this.velocity.y < -15;
+				const landVy = this.velocity.y;
+				const fellFast = landVy < -15;
+				// Trigger land-squash for any non-trivial fall; scale magnitude with vy.
+				if (landVy < -5) {
+					this.landingSquashT = Math.min(0.18, 0.08 + Math.abs(landVy) * 0.008);
+					this.landImpactPending = true;
+				}
 				if (this.state === 'ground_pound') {
 					this.velocity.y = config.groundPoundBounce;
 					this.poundImpactPending = true;
@@ -608,7 +624,8 @@ export class Player {
 			grounded: this.grounded,
 			timeSinceGrounded: this.timeSinceGrounded,
 			crouching: this.crouching,
-			currentScaleY: this.visualGroup.scale.y
+			currentScaleY: this.visualGroup.scale.y,
+			landingSquashT: this.landingSquashT
 		});
 		this.facingYaw = pose.facingYaw;
 		this.pitchAngle = pose.pitchAngle;
@@ -758,6 +775,28 @@ export class Player {
 			return true;
 		}
 		return false;
+	}
+
+	/** Consume the normal-landing event (set on hard landing, any state). */
+	consumeLandEvent(): boolean {
+		if (this.landImpactPending) {
+			this.landImpactPending = false;
+			return true;
+		}
+		return false;
+	}
+
+	/** Consume the skid-start event (set on entering skid state). */
+	consumeSkidEvent(): boolean {
+		if (this.skidStartPending) {
+			this.skidStartPending = false;
+			return true;
+		}
+		return false;
+	}
+
+	get colliderRef(): RAPIER.Collider {
+		return this.collider;
 	}
 
 	/** Hide/show the visual mesh (for first-person toggle). Physics unaffected. */
