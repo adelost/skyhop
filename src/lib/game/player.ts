@@ -502,13 +502,13 @@ export class Player {
 			const z = this.climbStart.z + (this.climbEnd.z - this.climbStart.z) * eased;
 			this.body.setTranslation({ x, y, z }, true);
 			this.mesh.position.set(x, y, z);
-				if (t >= 1) {
-					this.state = 'grounded';
-					this.ledgePos = null;
-					this.climbT = -1;
-					this.climbIntentT = 0;
-					this.ledgeGrabCooldown = 0.3;
-				}
+			if (t >= 1) {
+				this.state = 'grounded';
+				this.ledgePos = null;
+				this.climbT = -1;
+				this.climbIntentT = 0;
+				this.ledgeGrabCooldown = 0.3;
+			}
 			this.updateVisuals(dt);
 			return;
 		}
@@ -521,14 +521,14 @@ export class Player {
 		const intoWall = this.wallNormal
 			? new THREE.Vector3(-this.wallNormal.x, 0, -this.wallNormal.z).normalize()
 			: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
-			const tangent = this.wallNormal
-				? new THREE.Vector3(-this.wallNormal.z, 0, this.wallNormal.x).normalize()
-				: new THREE.Vector3(Math.cos(this.facingYaw), 0, -Math.sin(this.facingYaw));
-			const alongInput = mx * tangent.x + mz * tangent.z;
-			const intoWallInput = mx * intoWall.x + mz * intoWall.z;
-			const wantsShimmy = Math.abs(alongInput) > config.ledgeShimmyDeadzone;
-			const wantsClimb = intoWallInput > config.ledgeClimbInputDeadzone && !wantsShimmy;
-			const wantsDrop = intoWallInput < -config.ledgeClimbInputDeadzone;
+		const tangent = this.wallNormal
+			? new THREE.Vector3(-this.wallNormal.z, 0, this.wallNormal.x).normalize()
+			: new THREE.Vector3(Math.cos(this.facingYaw), 0, -Math.sin(this.facingYaw));
+		const alongInput = mx * tangent.x + mz * tangent.z;
+		const intoWallInput = mx * intoWall.x + mz * intoWall.z;
+		const wantsShimmy = Math.abs(alongInput) > config.ledgeShimmyDeadzone;
+		const wantsClimb = intoWallInput > config.ledgeClimbInputDeadzone && !wantsShimmy;
+		const wantsDrop = intoWallInput < -config.ledgeClimbInputDeadzone;
 
 		// Shimmy along ledge tangent
 		this.shimmyDir = 0;

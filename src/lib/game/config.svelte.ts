@@ -122,15 +122,15 @@ export const config = $state({
 	wallSlideGravityMult: 0.35,
 
 	// Ledge grab reach (how far forward + up to scan).
-		ledgeForwardReach: 1.0,
-		ledgeUpReach: 1.0,
-		ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
-		ledgeShimmySpeed: 2.0, // m/s along the ledge
-		ledgeShimmyDeadzone: 0.3,
-		ledgeClimbInputDeadzone: 0.6,
-		ledgeClimbCommitMs: 120, // require a short deliberate hold before pull-up
-		ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
-		ledgeClimbDurationMs: 420, // smooth pull-up animation length
+	ledgeForwardReach: 1.0,
+	ledgeUpReach: 1.0,
+	ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
+	ledgeShimmySpeed: 2.0, // m/s along the ledge
+	ledgeShimmyDeadzone: 0.3,
+	ledgeClimbInputDeadzone: 0.6,
+	ledgeClimbCommitMs: 120, // require a short deliberate hold before pull-up
+	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
+	ledgeClimbDurationMs: 420, // smooth pull-up animation length
 
 	// Wall-slide pose. Legs-into-wall, head-away: POSITIVE pitch (with nose facing
 	// into wall, positive pitch tips head backward = away from wall).
