@@ -75,9 +75,9 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 	if (reversed && horizSpeed > 3) {
 		return {
 			velocity: {
-				x: inputDirX * config.longJumpVelXZ * 0.6,
+				x: inputDirX * config.sideFlipVelXZ,
 				y: config.sideFlipVelY,
-				z: inputDirZ * config.longJumpVelXZ * 0.6
+				z: inputDirZ * config.sideFlipVelXZ
 			},
 			state: 'side_flip',
 			jumpChain: 0,

@@ -21,6 +21,8 @@
 	onMount(() => {
 		if (!browser) return;
 		let disposed = false;
+		const cleanups: Array<() => void> = [];
+		let pollRaf = 0;
 
 		(async () => {
 			try {
@@ -35,18 +37,18 @@
 				loading = false;
 
 				// Camera drag on full canvas. Touch-buttons sit on top with higher z.
-				bindCameraDrag(canvas, g);
-				bindWheelZoom(canvas, g);
-				bindPointerLock(canvas, g);
+				cleanups.push(bindCameraDrag(canvas, g));
+				cleanups.push(bindWheelZoom(canvas, g));
+				cleanups.push(bindPointerLock(canvas, g));
 
 				const pollTick = () => {
 					if (!game) return;
 					const d = game.getDebugInfo();
 					comboReady = d.comboReady;
 					wallKickReady = d.wallKickReady;
-					requestAnimationFrame(pollTick);
+					pollRaf = requestAnimationFrame(pollTick);
 				};
-				requestAnimationFrame(pollTick);
+				pollRaf = requestAnimationFrame(pollTick);
 
 				const isTouch = matchMedia('(pointer: coarse)').matches;
 				if (isTouch) {
@@ -76,7 +78,7 @@
 						game?.inputRef.releaseTouchCrouch()
 					);
 					bindTap(actionZone, () => game?.inputRef.pressTouchAction());
-					bindPinchZoom(canvas, g);
+					cleanups.push(bindPinchZoom(canvas, g));
 				}
 			} catch (e) {
 				error = e instanceof Error ? e.message : String(e);
@@ -94,6 +96,8 @@
 
 		return () => {
 			disposed = true;
+			cancelAnimationFrame(pollRaf);
+			for (const fn of cleanups) fn();
 			game?.dispose();
 			window.removeEventListener('keydown', onKey);
 		};
@@ -127,7 +131,7 @@
 		el.addEventListener('mousedown', fn);
 	}
 
-	function bindCameraDrag(el: HTMLElement, g: Game) {
+	function bindCameraDrag(el: HTMLElement, g: Game): () => void {
 		let dragging = false;
 		let lastX = 0;
 		let lastY = 0;
@@ -136,8 +140,6 @@
 		let activeId: number | null = null;
 
 		const onDown = (e: PointerEvent) => {
-			// Ignore if a touch-button was tapped (they stopPropagation).
-			// For mouse: left button only for drag. Right click opens pointer-lock via contextmenu.
 			if (e.pointerType === 'mouse' && e.button !== 0) return;
 			dragging = true;
 			activeId = e.pointerId;
@@ -157,7 +159,6 @@
 			lastY = e.clientY;
 			accumX += dx;
 			accumY += dy;
-			// Apply dead-zone per axis
 			if (Math.abs(accumX) > config.camDragDeadPx) {
 				g.addYaw(accumX * config.camYawSensitivity);
 				accumX = 0;
@@ -179,59 +180,68 @@
 		el.addEventListener('pointermove', onMove);
 		el.addEventListener('pointerup', onUp);
 		el.addEventListener('pointercancel', onUp);
+		return () => {
+			el.removeEventListener('pointerdown', onDown);
+			el.removeEventListener('pointermove', onMove);
+			el.removeEventListener('pointerup', onUp);
+			el.removeEventListener('pointercancel', onUp);
+		};
 	}
 
-	function bindWheelZoom(el: HTMLElement, g: Game) {
-		el.addEventListener(
-			'wheel',
-			(e: WheelEvent) => {
-				e.preventDefault();
-				const sign = Math.sign(e.deltaY);
-				g.addZoom(sign * config.camZoomScrollSpeed);
-			},
-			{ passive: false }
-		);
-	}
-
-	function bindPointerLock(el: HTMLElement, g: Game) {
-		el.addEventListener('contextmenu', (e) => {
+	function bindWheelZoom(el: HTMLElement, g: Game): () => void {
+		const onWheel = (e: WheelEvent) => {
 			e.preventDefault();
-			if (document.pointerLockElement === el) {
-				document.exitPointerLock();
-			} else {
-				el.requestPointerLock?.();
-			}
-		});
-		document.addEventListener('mousemove', (e: MouseEvent) => {
+			const sign = Math.sign(e.deltaY);
+			g.addZoom(sign * config.camZoomScrollSpeed);
+		};
+		el.addEventListener('wheel', onWheel, { passive: false });
+		return () => el.removeEventListener('wheel', onWheel);
+	}
+
+	function bindPointerLock(el: HTMLElement, g: Game): () => void {
+		const onContext = (e: Event) => {
+			e.preventDefault();
+			if (document.pointerLockElement === el) document.exitPointerLock();
+			else el.requestPointerLock?.();
+		};
+		const onMouseMove = (e: MouseEvent) => {
 			if (document.pointerLockElement !== el) return;
 			g.addYaw(e.movementX * config.camYawSensitivity);
 			g.addPitch(-e.movementY * config.camPitchSensitivity);
-		});
+		};
+		el.addEventListener('contextmenu', onContext);
+		document.addEventListener('mousemove', onMouseMove);
+		return () => {
+			el.removeEventListener('contextmenu', onContext);
+			document.removeEventListener('mousemove', onMouseMove);
+		};
 	}
 
-	function bindPinchZoom(el: HTMLElement, g: Game) {
+	function bindPinchZoom(el: HTMLElement, g: Game): () => void {
 		let lastDist = -1;
-		el.addEventListener(
-			'touchmove',
-			(e: TouchEvent) => {
-				if (e.touches.length !== 2) {
-					lastDist = -1;
-					return;
-				}
-				const a = e.touches[0];
-				const b = e.touches[1];
-				const d = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-				if (lastDist > 0) {
-					const delta = lastDist - d; // pinch close = delta > 0 = zoom in (reduce dist)
-					g.addZoom(delta * config.camZoomPinchSensitivity);
-				}
-				lastDist = d;
-			},
-			{ passive: true }
-		);
-		el.addEventListener('touchend', () => {
+		const onTouchMove = (e: TouchEvent) => {
+			if (e.touches.length !== 2) {
+				lastDist = -1;
+				return;
+			}
+			const a = e.touches[0];
+			const b = e.touches[1];
+			const d = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+			if (lastDist > 0) {
+				const delta = lastDist - d;
+				g.addZoom(delta * config.camZoomPinchSensitivity);
+			}
+			lastDist = d;
+		};
+		const onTouchEnd = () => {
 			lastDist = -1;
-		});
+		};
+		el.addEventListener('touchmove', onTouchMove, { passive: true });
+		el.addEventListener('touchend', onTouchEnd);
+		return () => {
+			el.removeEventListener('touchmove', onTouchMove);
+			el.removeEventListener('touchend', onTouchEnd);
+		};
 	}
 </script>
 

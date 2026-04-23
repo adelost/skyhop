@@ -31,6 +31,7 @@ export class Game {
 	private cameraPitch = 0;
 	private cameraDist = config.camDistance;
 	private cameraFov = config.camFovBase;
+	private dynDistSmoothed = config.camDistance; // smoothed speed-based dist boost
 	private timeSinceCamInput = 999;
 
 	// Y-stabilization during short hops
@@ -123,10 +124,14 @@ export class Game {
 	}
 
 	addZoom(delta: number): void {
-		this.cameraDist = Math.max(
+		const next = Math.max(
 			config.camZoomMin,
 			Math.min(config.camZoomMax, this.cameraDist + delta)
 		);
+		const applied = next - this.cameraDist;
+		this.cameraDist = next;
+		// Keep smoothed dist in sync so explicit zoom isn't eaten by the lerp.
+		this.dynDistSmoothed += applied;
 	}
 
 	recenterCam(): void {
@@ -134,6 +139,7 @@ export class Game {
 		else this.cameraYaw = 0;
 		this.cameraPitch = 0;
 		this.cameraDist = config.camDistance;
+		this.dynDistSmoothed = config.camDistance;
 		this.timeSinceCamInput = 999;
 	}
 
@@ -240,13 +246,17 @@ export class Game {
 			}
 		}
 
-		// Speed-adaptive zoom + FOV (subtle fart-känsla)
+		// Speed-adaptive zoom + FOV. Both smoothed at same rate so accel + decel
+		// feel symmetric. Current values are subtle (Odyssey-ish, not arcade).
 		const speedFrac = Math.min(1, horizSp / config.camLookAheadSpeedRef);
-		const dynDist = this.cameraDist + config.camDistSpeedBoost * speedFrac;
-		const dynFov = config.camFovBase + config.camFovSpeedBoost * speedFrac;
-		this.cameraFov += (dynFov - this.cameraFov) * Math.min(1, dt * 4);
+		const targetDist = this.cameraDist + config.camDistSpeedBoost * speedFrac;
+		const targetFov = config.camFovBase + config.camFovSpeedBoost * speedFrac;
+		const boostLerp = Math.min(1, dt * config.camSpeedBoostLerp);
+		this.dynDistSmoothed += (targetDist - this.dynDistSmoothed) * boostLerp;
+		this.cameraFov += (targetFov - this.cameraFov) * boostLerp;
 		this.camera.fov = this.cameraFov;
 		this.camera.updateProjectionMatrix();
+		const dynDist = this.dynDistSmoothed;
 
 		// Position camera
 		let camPos: THREE.Vector3;

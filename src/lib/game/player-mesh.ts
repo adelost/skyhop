@@ -1,14 +1,11 @@
 import * as THREE from 'three';
+import { RADIUS, HEIGHT } from './player-constants';
 
-const RADIUS = 0.4;
-const HEIGHT = 0.8;
 const EYE_HEIGHT = 0.3;
 
 export type PlayerMeshes = {
 	outer: THREE.Group; // physics-aligned (position only)
 	inner: THREE.Group; // rotation + scale + pivot offset
-	body: THREE.Mesh;
-	nose: THREE.Mesh;
 };
 
 /**
@@ -41,5 +38,5 @@ export function buildPlayerMeshes(): PlayerMeshes {
 	inner.add(eL);
 	inner.add(eR);
 
-	return { outer, inner, body, nose };
+	return { outer, inner };
 }

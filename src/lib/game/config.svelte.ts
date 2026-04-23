@@ -49,6 +49,7 @@ export const config = $state({
 	backflipVelY: 18.6,
 	backflipVelXZ: -4.8,
 	sideFlipVelY: 18.6,
+	sideFlipVelXZ: 2.4, // M64: 8 u/f = 2.4 m/s. Own setting, decoupled from long jump.
 	wallKickVelY: 18.6,
 	wallKickVelXZ: 7.2,
 	wallStickMs: 167, // M64: 5 frames
@@ -79,10 +80,12 @@ export const config = $state({
 	// Y-stabilization: don't snap cam during brief hops
 	camYStabilizeMs: 300,
 
-	// Speed-adaptive FOV + distance (subtle cinematic polish)
+	// Speed-adaptive FOV + distance. Keep SUBTLE (Odyssey-style, not arcade).
+	// Mario 64 has none — if you want authentic M64, set both boosts to 0.
 	camFovBase: 60,
-	camFovSpeedBoost: 6, // deg added at max speed
-	camDistSpeedBoost: 1.5, // m added at max speed
+	camFovSpeedBoost: 2, // deg added at max speed (was 6, felt too aggressive)
+	camDistSpeedBoost: 0.5, // m added at max speed (was 1.5)
+	camSpeedBoostLerp: 2, // rad/s — ease in/out of boost (same rate both directions)
 
 	// Cam smoothing ("operator lag"). Lower = laggier / more physical.
 	camLerpRate: 6,

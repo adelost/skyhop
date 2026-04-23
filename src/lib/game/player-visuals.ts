@@ -1,9 +1,8 @@
 import type { PlayerState } from './player';
 import type { WallNormal } from './player-queries';
 import { config } from './config.svelte';
+import { RADIUS, HEIGHT } from './player-constants';
 
-const RADIUS = 0.4;
-const HEIGHT = 0.8;
 const HALF_BODY = HEIGHT / 2 + RADIUS; // 0.8
 
 export type PoseInput = {

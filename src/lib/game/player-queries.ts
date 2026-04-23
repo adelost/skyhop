@@ -2,9 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Physics } from './physics';
 import { config } from './config.svelte';
-
-const RADIUS = 0.4;
-const HEIGHT = 0.8;
+import { RADIUS, HEIGHT } from './player-constants';
 
 export type WallNormal = { x: number; z: number };
 
@@ -198,5 +196,58 @@ export function verifyLedgeAt(
 		collider
 	);
 	if (head) return false;
+	return true;
+}
+
+/**
+ * Check that the space the player will occupy AFTER pull-up is clear of geometry.
+ * Runs a downward ray from above the target pull-up position looking for nearby
+ * ceiling + a horizontal check for walls. Called before committing climb so we
+ * don't shove the player into a ceiling or thick ledge lip.
+ *
+ * @param topPos Target stand-on-ledge position (player body center).
+ */
+export function verifyClearanceAbove(
+	physics: Physics,
+	collider: RAPIER.Collider,
+	topPos: { x: number; y: number; z: number }
+): boolean {
+	const { world, rapier } = physics;
+	// Space above player (must be clear for at least HEIGHT/2 + RADIUS headroom)
+	const clearance = HEIGHT + RADIUS;
+	const rayUp = world.castRay(
+		new rapier.Ray(
+			{ x: topPos.x, y: topPos.y, z: topPos.z },
+			{ x: 0, y: 1, z: 0 }
+		),
+		clearance,
+		true,
+		undefined,
+		undefined,
+		collider
+	);
+	if (rayUp) return false;
+
+	// Space in lateral directions (capsule radius) — no wall inside the body
+	const dirs: [number, number][] = [
+		[1, 0],
+		[-1, 0],
+		[0, 1],
+		[0, -1]
+	];
+	for (const [dx, dz] of dirs) {
+		const ray = world.castRay(
+			new rapier.Ray(
+				{ x: topPos.x, y: topPos.y, z: topPos.z },
+				{ x: dx, y: 0, z: dz }
+			),
+			RADIUS + 0.05,
+			true,
+			undefined,
+			undefined,
+			collider
+		);
+		if (ray) return false;
+	}
 	return true;
 }

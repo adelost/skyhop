@@ -9,15 +9,13 @@ import {
 	queryWallContact,
 	tryLedgeGrab,
 	verifyLedgeAt,
+	verifyClearanceAbove,
 	type WallNormal
 } from './player-queries';
 import { computePose } from './player-visuals';
 import { buildPlayerMeshes } from './player-mesh';
 import { computeJump, computeWallKick } from './player-jumps';
-
-const RADIUS = 0.4;
-const HEIGHT = 0.8;
-const EYE_HEIGHT = 0.3;
+import { RADIUS, HEIGHT } from './player-constants';
 
 export type PlayerState =
 	| 'grounded'
@@ -47,8 +45,6 @@ export type DebugInfo = {
 export class Player {
 	readonly mesh: THREE.Group; // outer — physics-aligned (position only)
 	private visualGroup: THREE.Group; // inner — rotation + scale + crouch offset
-	private bodyMesh: THREE.Mesh;
-	private noseMesh: THREE.Mesh;
 	private body: RAPIER.RigidBody;
 	private controller: RAPIER.KinematicCharacterController;
 	private collider: RAPIER.Collider;
@@ -100,8 +96,6 @@ export class Player {
 		const meshes = buildPlayerMeshes();
 		this.mesh = meshes.outer;
 		this.visualGroup = meshes.inner;
-		this.bodyMesh = meshes.body;
-		this.noseMesh = meshes.nose;
 		this.mesh.position.copy(spawn);
 		scene.add(this.mesh);
 
@@ -566,16 +560,24 @@ export class Player {
 
 		const climbCommitSec = config.ledgeClimbCommitMs / 1000;
 		if (this.climbIntentT >= climbCommitSec) {
-			// Start climb animation — lerp from hang pos to standing on top over duration.
-			this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
-			this.climbEnd.set(
-				this.ledgePos.x + intoWall.x * 0.7,
-				this.ledgePos.y + HEIGHT + 0.3,
-				this.ledgePos.z + intoWall.z * 0.7
-			);
-			this.climbT = 0;
-			this.climbIntentT = 0;
-			haptic(20);
+			// Verify the pull-up destination is actually free of geometry (ceiling,
+			// thick ledge lip, corner wall). Skip climb if blocked — the player can
+			// still shimmy sideways until they find a viable spot.
+			const candidateEnd = {
+				x: this.ledgePos.x + intoWall.x * 0.7,
+				y: this.ledgePos.y + HEIGHT + 0.3,
+				z: this.ledgePos.z + intoWall.z * 0.7
+			};
+			if (verifyClearanceAbove(physics, this.collider, candidateEnd)) {
+				this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
+				this.climbEnd.set(candidateEnd.x, candidateEnd.y, candidateEnd.z);
+				this.climbT = 0;
+				this.climbIntentT = 0;
+				haptic(20);
+			} else {
+				// Blocked — reset intent so user can retry (e.g. after shimmy to cleaner spot)
+				this.climbIntentT = 0;
+			}
 		} else if (input.jumpPressed) {
 			this.velocity.y = config.jumpVel;
 			this.state = 'airborne';

@@ -44,6 +44,26 @@
 		{ key: 'wallSlidePoseDeg', min: -60, max: 60, step: 1 },
 		{ key: 'ledgePoseDeg', min: -60, max: 60, step: 1 },
 		{ key: 'ledgeShimmySpeed', min: 0, max: 6, step: 0.1 },
+		{ key: 'ledgeShimmyDeadzone', min: 0, max: 1, step: 0.05 },
+		{ key: 'ledgeClimbInputDeadzone', min: 0.1, max: 1, step: 0.05 },
+		{ key: 'ledgeClimbCommitMs', min: 0, max: 500, step: 10 },
+		{ key: 'ledgeClimbDurationMs', min: 100, max: 1000, step: 20 },
+		{ key: 'sideFlipVelXZ', min: 0, max: 15, step: 0.1 },
+		{ key: 'camLookAheadDist', min: 0, max: 8, step: 0.1 },
+		{ key: 'camLookAheadSpeedRef', min: 2, max: 20, step: 0.5 },
+		{ key: 'camYStabilizeMs', min: 0, max: 1000, step: 10 },
+		{ key: 'camFovBase', min: 30, max: 90, step: 1 },
+		{ key: 'camFovSpeedBoost', min: 0, max: 20, step: 0.5 },
+		{ key: 'camDistSpeedBoost', min: 0, max: 5, step: 0.1 },
+		{ key: 'camSpeedBoostLerp', min: 0.5, max: 10, step: 0.25 },
+		{ key: 'camLerpRate', min: 1, max: 20, step: 0.5 },
+		{ key: 'camDragDeadPx', min: 0, max: 20, step: 1 },
+		{ key: 'camPitchSensitivity', min: 0.001, max: 0.02, step: 0.001 },
+		{ key: 'camShakeAmp', min: 0, max: 0.5, step: 0.01 },
+		{ key: 'camShakeDuration', min: 0, max: 1, step: 0.05 },
+		{ key: 'camLedgeFramingUp', min: 0, max: 3, step: 0.1 },
+		{ key: 'camRecenterMinSpeed', min: 0, max: 6, step: 0.2 },
+		{ key: 'camRecenterMinYawDiff', min: 0, max: 2, step: 0.1 },
 		{ key: 'poseLerpRate', min: 1, max: 30, step: 0.5 },
 		{ key: 'runJumpBonus', min: 0, max: 1, step: 0.05 },
 		{ key: 'runDoubleJumpBonus', min: 0, max: 1, step: 0.05 },
@@ -81,11 +101,33 @@
 		config.groundPoundBounce = 0;
 		config.diveVelY = 0;
 		config.diveVelXZ = 14.4;
+		config.sideFlipVelXZ = 2.4;
 		config.camYawSensitivity = 0.006;
+		config.camPitchSensitivity = 0.004;
 		config.camDistance = 10;
 		config.camHeight = 2.5;
-		config.camRecenterDelayMs = 1500;
+		config.camRecenterDelayMs = 3000;
 		config.camRecenterSpeed = 0.8;
+		config.camRecenterMinSpeed = 2;
+		config.camRecenterMinYawDiff = 0.8;
+		config.camLookAheadDist = 2.5;
+		config.camLookAheadSpeedRef = 8;
+		config.camYStabilizeMs = 300;
+		config.camFovBase = 60;
+		config.camFovSpeedBoost = 2;
+		config.camDistSpeedBoost = 0.5;
+		config.camSpeedBoostLerp = 2;
+		config.camLerpRate = 6;
+		config.camDragDeadPx = 3;
+		config.camPitchMin = -0.35;
+		config.camPitchMax = 0.9;
+		config.camZoomMin = 4;
+		config.camZoomMax = 18;
+		config.camZoomScrollSpeed = 1.5;
+		config.camZoomPinchSensitivity = 0.02;
+		config.camShakeAmp = 0.15;
+		config.camShakeDuration = 0.25;
+		config.camLedgeFramingUp = 1.5;
 		config.rotationSpeed = 12;
 		config.skidReverseDeg = 120;
 		config.skidDurationMs = 350;
@@ -98,7 +140,11 @@
 		config.ledgeUpReach = 1.0;
 		config.ledgeMinFallSpeed = 1;
 		config.ledgeShimmySpeed = 2.0;
+		config.ledgeShimmyDeadzone = 0.3;
+		config.ledgeClimbInputDeadzone = 0.6;
+		config.ledgeClimbCommitMs = 120;
 		config.ledgePoseDeg = -30;
+		config.ledgeClimbDurationMs = 420;
 		config.wallSlidePoseDeg = 22;
 		config.poseLerpRate = 8;
 		config.sameWallLockoutMs = 500;
