@@ -13,7 +13,11 @@
 		grounded: false,
 		slopeAngleDeg: 0,
 		surface: 'air',
-		fps: 60
+		fps: 60,
+		shimmyTry: 0,
+		shimmyOk: 0,
+		shimmyLn: '-',
+		shimmyBody: -1
 	});
 
 	let rafId = 0;
@@ -41,6 +45,9 @@
 	<div class="row"><span class="k">slope</span> <span class="v">{info.slopeAngleDeg.toFixed(1)}°</span></div>
 	<div class="row"><span class="k">grnd</span> <span class="v">{info.grounded ? '✓' : '—'}</span></div>
 	<div class="row"><span class="k">fps</span> <span class="v">{info.fps}</span></div>
+	<div class="row"><span class="k">shimmy</span> <span class="v">{info.shimmyOk}/{info.shimmyTry}</span></div>
+	<div class="row"><span class="k">ln</span> <span class="v">{info.shimmyLn}</span></div>
+	<div class="row"><span class="k">body</span> <span class="v">{info.shimmyBody}</span></div>
 </div>
 
 <style>
