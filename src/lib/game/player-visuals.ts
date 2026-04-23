@@ -95,18 +95,19 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = easeInOutSine(t) * (Math.PI * 2);
 		renderPitch = pitchAngle;
 	} else if (state === "side_flip") {
-		// M64 side flip is MARIO_ANIM_SLIDEFLIP: a sideways roll plus extra yaw
-		// spin, not a forward somersault. Phase-ease the roll over the full
-		// duration so it starts and ends softly. Yaw-spin decays over the first
-		// half to sell the pirouette without over-rotating.
+		// M64 ACT_SIDE_FLIP (mario_actions_airborne.c:608):
+		//   gfx.angle[1] += 0x8000  // render yaw flipped 180° from physics
+		// Combined with MARIO_ANIM_SLIDEFLIP (24-frame skeletal anim) this
+		// reads as the body flipping forward while traveling in the opposite
+		// direction. Without skeletal anim we approximate with:
+		//   - renderYaw = physics facing + π  (static 180° flip)
+		//   - one phase-eased forward somersault via pitch
 		const dur = Math.max(0.001, config.sideFlipRotationDuration);
 		const t = Math.min(1, input.stateTime / dur);
-		renderRoll = easeInOutSine(t) * -(Math.PI * 2);
-		pitchAngle = lerpToward(pitchAngle, 0, 12 * dt);
+		pitchAngle = easeInOutSine(t) * -(Math.PI * 2);
 		renderPitch = pitchAngle;
-		const spinFrac = Math.max(0, 1 - t * 2);
-		yawSpin += config.sideFlipYawSpinRate * dt * spinFrac;
-		renderYaw = newFacingYaw + yawSpin;
+		renderYaw = newFacingYaw + Math.PI;
+		renderRoll = 0;
 	} else if (state === "ground_pound_start") {
 		// M64: one full forward somersault over the startup window, then the
 		// code below lerps back to upright for the slam. Rate is 2π / startupSec
