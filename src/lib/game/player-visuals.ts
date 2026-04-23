@@ -81,7 +81,10 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 3, 10 * dt);
 		renderPitch = pitchAngle;
 	} else if (state === "dive") {
-		pitchAngle = lerpToward(pitchAngle, -Math.PI / 2, 12 * dt);
+		// M64 dive pitches gradually toward ~-60°, not full -90°. Full vertical
+		// reads as face-plant rather than superman dive. The lerp lets it settle
+		// there instead of snapping.
+		pitchAngle = lerpToward(pitchAngle, -Math.PI / 3, 12 * dt);
 		renderPitch = pitchAngle;
 	} else if (state === "backflip") {
 		// Phase-based backward somersault: easeInOutSine from 0 → +2π over
