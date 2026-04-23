@@ -27,8 +27,12 @@
 		{ key: 'wallKickVelY', min: 3, max: 30, step: 0.1 },
 		{ key: 'wallKickVelXZ', min: 3, max: 20, step: 0.1 },
 		{ key: 'wallStickMs', min: 50, max: 400, step: 10 },
+		{ key: 'groundPoundStartMs', min: 0, max: 250, step: 10 },
+		{ key: 'groundPoundStartVelY', min: 0, max: 8, step: 0.1 },
+		{ key: 'groundPoundStartGravityMult', min: 0, max: 1, step: 0.05 },
 		{ key: 'groundPoundVel', min: -50, max: -5, step: 0.5 },
 		{ key: 'groundPoundBounce', min: 0, max: 20, step: 0.5 },
+		{ key: 'groundPoundImpactSquashMs', min: 0, max: 400, step: 10 },
 		{ key: 'diveVelY', min: 0, max: 10, step: 0.1 },
 		{ key: 'diveVelXZ', min: 3, max: 25, step: 0.1 },
 		{ key: 'camDistance', min: 4, max: 20, step: 0.5 },
@@ -105,8 +109,12 @@
 		config.wallKickVelY = 18.6;
 		config.wallKickVelXZ = 7.2;
 		config.wallStickMs = 167;
+		config.groundPoundStartMs = 100;
+		config.groundPoundStartVelY = 2.2;
+		config.groundPoundStartGravityMult = 0.12;
 		config.groundPoundVel = -15;
 		config.groundPoundBounce = 0;
+		config.groundPoundImpactSquashMs = 220;
 		config.diveVelY = 0;
 		config.diveVelXZ = 14.4;
 		config.sideFlipVelXZ = 2.4;

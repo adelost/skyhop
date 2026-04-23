@@ -55,10 +55,16 @@ export const config = $state({
 	wallStickMs: 167, // M64: 5 frames
 
 	// Aerial actions.
-	// Ground pound: M64 -50 u/f = -15 m/s. No bounce in M64 (we offer small one optionally).
+	// Ground pound: short tuck/wind-up, then hard vertical slam at -50 u/f = -15 m/s.
+	// The startup isn't authentic frame-by-frame decomp logic, but it sells the same
+	// readable "commit, then stomp" feel with a simple procedural avatar.
 	// Dive: M64 Y inherits (no set), XZ = fVel+15 cap 48 u/f = 14.4 m/s.
+	groundPoundStartMs: 100,
+	groundPoundStartVelY: 2.2,
+	groundPoundStartGravityMult: 0.12,
 	groundPoundVel: -15,
 	groundPoundBounce: 0,
+	groundPoundImpactSquashMs: 220,
 	diveVelY: 0,
 	diveVelXZ: 14.4,
 
@@ -148,7 +154,7 @@ export const config = $state({
 	poseLerpRate: 8,
 
 	// Wall-kick lockout: can't re-kick the same wall for this duration.
-	sameWallLockoutMs: 500
+	sameWallLockoutMs: 500,
 });
 
 export type Config = typeof config;

@@ -1,36 +1,36 @@
-import * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Physics } from './physics';
-import type { InputState } from './input';
-import type { MovingPlatform } from './world';
-import { config } from './config.svelte';
+import * as THREE from "three";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import type { Physics } from "./physics";
+import type { InputState } from "./input";
+import type { MovingPlatform } from "./world";
+import { config } from "./config.svelte";
 import {
 	queryGroundSurface,
 	queryWallContact,
 	tryLedgeGrab,
 	verifyLedgeAt,
 	verifyClearanceAbove,
-	type WallNormal
-} from './player-queries';
-import { computePose, computeLimbs } from './player-visuals';
-import { buildPlayerMeshes, type Limbs } from './player-mesh';
-import { computeJump, computeWallKick } from './player-jumps';
-import { RADIUS, HEIGHT } from './player-constants';
+	type WallNormal,
+} from "./player-queries";
+import { computePose, computeLimbs } from "./player-visuals";
+import { buildPlayerMeshes, type Limbs } from "./player-mesh";
+import { computeJump, computeWallKick } from "./player-jumps";
+import { RADIUS, HEIGHT } from "./player-constants";
 
 export type PlayerState =
-	| 'grounded'
-	| 'airborne'
-	| 'wall_slide'
-	| 'ground_pound_start'
-	| 'ground_pound'
-	| 'dive'
-	| 'long_jump'
-	| 'backflip'
-	| 'side_flip'
-	| 'slope_slide'
-	| 'crouch_slide'
-	| 'skid'
-	| 'ledge_hang';
+	| "grounded"
+	| "airborne"
+	| "wall_slide"
+	| "ground_pound_start"
+	| "ground_pound"
+	| "dive"
+	| "long_jump"
+	| "backflip"
+	| "side_flip"
+	| "slope_slide"
+	| "crouch_slide"
+	| "skid"
+	| "ledge_hang";
 
 export type DebugInfo = {
 	state: PlayerState;
@@ -58,8 +58,8 @@ export class Player {
 	private timeSinceLanding = 999;
 	private jumpChain = 0;
 	private chainOnLanding = 0;
-	private state: PlayerState = 'airborne';
-	private surface = 'air';
+	private state: PlayerState = "airborne";
+	private surface = "air";
 	private slopeNormal = new THREE.Vector3(0, 1, 0);
 	private slopeAngleDeg = 0;
 
@@ -125,11 +125,12 @@ export class Player {
 		scene.add(this.mesh);
 
 		const { world, rapier } = physics;
-		const bodyDesc = rapier.RigidBodyDesc.kinematicPositionBased().setTranslation(
-			spawn.x,
-			spawn.y,
-			spawn.z
-		);
+		const bodyDesc =
+			rapier.RigidBodyDesc.kinematicPositionBased().setTranslation(
+				spawn.x,
+				spawn.y,
+				spawn.z,
+			);
 		this.body = world.createRigidBody(bodyDesc);
 		const colDesc = rapier.ColliderDesc.capsule(HEIGHT / 2, RADIUS);
 		this.collider = world.createCollider(colDesc, this.body);
@@ -152,17 +153,28 @@ export class Player {
 		const origin = this.body.translation();
 		const ray = new rapier.Ray(
 			{ x: origin.x, y: origin.y + 0.1, z: origin.z },
-			{ x: 0, y: -1, z: 0 }
+			{ x: 0, y: -1, z: 0 },
 		);
-		const hit = world.castRay(ray, HEIGHT + 0.5, true, undefined, undefined, this.collider);
+		const hit = world.castRay(
+			ray,
+			HEIGHT + 0.5,
+			true,
+			undefined,
+			undefined,
+			this.collider,
+		);
 		if (!hit) return;
 		const parentBody = hit.collider.parent();
 		if (!parentBody) return;
 		for (const p of platforms) {
 			if (parentBody.handle === p.bodyHandle) {
 				this.body.setTranslation(
-					{ x: origin.x + p.delta.x, y: origin.y + p.delta.y, z: origin.z + p.delta.z },
-					true
+					{
+						x: origin.x + p.delta.x,
+						y: origin.y + p.delta.y,
+						z: origin.z + p.delta.z,
+					},
+					true,
 				);
 				return;
 			}
@@ -177,13 +189,18 @@ export class Player {
 	 * from engine each fixed step, before player.step().
 	 */
 	carryLedgeOnPlatform(platforms: MovingPlatform[]): void {
-		if (this.state !== 'ledge_hang' || !this.ledgePos || this.ledgeBodyHandle === null) return;
+		if (
+			this.state !== "ledge_hang" ||
+			!this.ledgePos ||
+			this.ledgeBodyHandle === null
+		)
+			return;
 		for (const p of platforms) {
 			if (p.bodyHandle === this.ledgeBodyHandle) {
 				this.ledgePos = {
 					x: this.ledgePos.x + p.delta.x,
 					y: this.ledgePos.y + p.delta.y,
-					z: this.ledgePos.z + p.delta.z
+					z: this.ledgePos.z + p.delta.z,
 				};
 				return;
 			}
@@ -191,7 +208,10 @@ export class Player {
 	}
 
 	respawn(): void {
-		this.body.setTranslation({ x: this.startPos.x, y: this.startPos.y, z: this.startPos.z }, true);
+		this.body.setTranslation(
+			{ x: this.startPos.x, y: this.startPos.y, z: this.startPos.z },
+			true,
+		);
 		this.velocity.set(0, 0, 0);
 		// Snap interpolation anchors so mesh doesn't lerp across teleport.
 		this.prevBodyPos.copy(this.startPos);
@@ -218,29 +238,30 @@ export class Player {
 		this.pitchAngle = 0;
 		this.yawSpin = 0;
 		this.crouching = false;
-			this.poundImpactPending = false;
-			this.landImpactPending = false;
-			this.skidStartPending = false;
-			this.landingSquashT = 0;
-			this.groundPoundStartT = 0;
-			this.state = 'airborne';
-		}
+		this.poundImpactPending = false;
+		this.landImpactPending = false;
+		this.skidStartPending = false;
+		this.landingSquashT = 0;
+		this.groundPoundStartT = 0;
+		this.state = "airborne";
+	}
 
 	step(dt: number, input: InputState, physics: Physics): void {
 		// Track crouch for visual purposes (outlives input frame)
 		this.crouching = input.crouchHeld;
 		this.accumTime += dt;
-		if (this.landingSquashT > 0) this.landingSquashT = Math.max(0, this.landingSquashT - dt);
+		if (this.landingSquashT > 0)
+			this.landingSquashT = Math.max(0, this.landingSquashT - dt);
 
 		// Query slope/surface FIRST so this frame's movement knows about it.
 		this.surface = this.grounded
 			? queryGroundSurface(physics, this.collider, this.body, this.slopeNormal)
-			: (this.slopeNormal.set(0, 1, 0), 'air');
+			: (this.slopeNormal.set(0, 1, 0), "air");
 		const ny = Math.max(-1, Math.min(1, this.slopeNormal.y));
 		this.slopeAngleDeg = Math.acos(ny) * (180 / Math.PI);
 
 		// Handle ledge-hang as a separate mini state machine.
-		if (this.state === 'ledge_hang') {
+		if (this.state === "ledge_hang") {
 			this.handleLedgeHang(input, physics, dt);
 			return;
 		}
@@ -257,7 +278,7 @@ export class Player {
 		const targetZ = mz * speedTarget;
 
 		const hasInput = Math.abs(mx) > 0.01 || Math.abs(mz) > 0.01;
-		const onIce = this.surface === 'ice';
+		const onIce = this.surface === "ice";
 
 		// Detect state: is slope steep enough to force a slide?
 		const slopeTooSteep =
@@ -275,42 +296,49 @@ export class Player {
 			this.grounded &&
 			input.crouchPressed &&
 			Math.hypot(this.velocity.x, this.velocity.z) > 4 &&
-			this.state !== 'crouch_slide';
+			this.state !== "crouch_slide";
 
 		// Update state based on grounded context.
 		if (this.grounded) {
 			if (slopeTooSteep) {
-				this.state = 'slope_slide';
-			} else if (wantsCrouchSlide || wantsDashSlide || this.state === 'crouch_slide') {
+				this.state = "slope_slide";
+			} else if (
+				wantsCrouchSlide ||
+				wantsDashSlide ||
+				this.state === "crouch_slide"
+			) {
 				const sliding =
 					input.crouchHeld &&
 					Math.hypot(this.velocity.x, this.velocity.z) > 0.5;
-				this.state = sliding ? 'crouch_slide' : 'grounded';
-			} else if (this.state === 'skid') {
+				this.state = sliding ? "crouch_slide" : "grounded";
+			} else if (this.state === "skid") {
 				this.skidT += dt;
-				if (this.skidT >= config.skidDurationMs / 1000) this.state = 'grounded';
+				if (this.skidT >= config.skidDurationMs / 1000) this.state = "grounded";
 			} else {
-				this.state = 'grounded';
+				this.state = "grounded";
 			}
 		}
 
-			// Horizontal accel/decel. Locked states keep their momentum.
-			const momentumLocked =
-				(!this.grounded &&
-					(this.state === 'long_jump' ||
-						this.state === 'backflip' ||
-						this.state === 'side_flip' ||
-						this.state === 'dive' ||
-						this.state === 'ground_pound_start' ||
-						this.state === 'ground_pound')) ||
-				this.state === 'slope_slide' ||
-				this.state === 'crouch_slide' ||
-				this.state === 'skid';
+		// Horizontal accel/decel. Locked states keep their momentum.
+		const momentumLocked =
+			(!this.grounded &&
+				(this.state === "long_jump" ||
+					this.state === "backflip" ||
+					this.state === "side_flip" ||
+					this.state === "dive" ||
+					this.state === "ground_pound_start" ||
+					this.state === "ground_pound")) ||
+			this.state === "slope_slide" ||
+			this.state === "crouch_slide" ||
+			this.state === "skid";
 
 		let groundRate: number;
-		if (hasInput) groundRate = onIce ? config.accel * config.iceFriction : config.accel;
+		if (hasInput)
+			groundRate = onIce ? config.accel * config.iceFriction : config.accel;
 		else groundRate = onIce ? config.decel * config.iceFriction : config.decel;
-		const accelRate = this.grounded ? groundRate : config.accel * config.airControl;
+		const accelRate = this.grounded
+			? groundRate
+			: config.accel * config.airControl;
 
 		if (!momentumLocked) {
 			if (hasInput) {
@@ -338,11 +366,16 @@ export class Player {
 			// Skid-turn detection: grounded + fast + input reverses direction.
 			// M64 uses this window to allow A-press = side flip. Visual: lean back + freeze.
 			const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
-			if (this.grounded && this.state === 'grounded' && horizSp > 4 && hasInput) {
+			if (
+				this.grounded &&
+				this.state === "grounded" &&
+				horizSp > 4 &&
+				hasInput
+			) {
 				const inputYaw = Math.atan2(-mx, -mz);
 				const deltaYaw = angleDiff(inputYaw, this.facingYaw);
 				if (Math.abs(deltaYaw) > (config.skidReverseDeg * Math.PI) / 180) {
-					this.state = 'skid';
+					this.state = "skid";
 					this.skidT = 0;
 					this.skidStartPending = true;
 					this.targetYaw = inputYaw;
@@ -354,7 +387,7 @@ export class Player {
 		}
 
 		// Crouch-slide: gentle friction decay + downhill boost if on slope.
-		if (this.state === 'crouch_slide') {
+		if (this.state === "crouch_slide") {
 			this.velocity.x = approach(this.velocity.x, 0, 5 * dt);
 			this.velocity.z = approach(this.velocity.z, 0, 5 * dt);
 			if (this.slopeAngleDeg >= 5) {
@@ -372,11 +405,11 @@ export class Player {
 			this.timeSinceLanding += dt;
 		}
 
-			// Track facing from velocity (desired yaw).
-			const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-			if (this.shouldTrackFacingFromVelocity(horizSpeed)) {
-				this.targetYaw = Math.atan2(-this.velocity.x, -this.velocity.z);
-			}
+		// Track facing from velocity (desired yaw).
+		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+		if (this.shouldTrackFacingFromVelocity(horizSpeed)) {
+			this.targetYaw = Math.atan2(-this.velocity.x, -this.velocity.z);
+		}
 
 		// Jump buffer
 		if (input.jumpPressed) this.jumpBufferT = 0;
@@ -414,46 +447,78 @@ export class Player {
 		}
 
 		// Aerial actions (ground pound / dive)
-		if (!this.grounded && this.state !== 'ground_pound' && this.state !== 'dive') {
+		if (
+			!this.grounded &&
+			this.state !== "ground_pound_start" &&
+			this.state !== "ground_pound" &&
+			this.state !== "dive"
+		) {
 			const triggerGP =
 				input.crouchPressed || (input.actionPressed && horizSpeed < 2.5);
 			const triggerDive = input.actionPressed && horizSpeed >= 2.5;
-				if (triggerGP) {
-					this.velocity.x = 0;
-					this.velocity.z = 0;
-					this.velocity.y = config.groundPoundVel;
-					this.state = 'ground_pound';
-					this.jumpChain = 0;
-					this.setFacing(this.facingYaw);
-					haptic(15);
-				} else if (triggerDive) {
-					const mag = Math.max(horizSpeed, 1);
-					const dx = this.velocity.x / mag;
-					const dz = this.velocity.z / mag;
+			if (triggerGP) {
+				this.velocity.x *= 0.18;
+				this.velocity.z *= 0.18;
+				this.velocity.y = Math.max(
+					this.velocity.y,
+					config.groundPoundStartVelY,
+				);
+				this.state = "ground_pound_start";
+				this.groundPoundStartT = 0;
+				this.jumpChain = 0;
+				this.setFacing(this.facingYaw);
+				haptic(15);
+			} else if (triggerDive) {
+				const mag = Math.max(horizSpeed, 1);
+				const dx = this.velocity.x / mag;
+				const dz = this.velocity.z / mag;
 				this.velocity.x = dx * config.diveVelXZ;
-					this.velocity.z = dz * config.diveVelXZ;
-					this.velocity.y = config.diveVelY;
-					this.state = 'dive';
-					this.jumpChain = 0;
-					this.snapFacingToVelocity();
-					haptic(15);
-				}
+				this.velocity.z = dz * config.diveVelXZ;
+				this.velocity.y = config.diveVelY;
+				this.state = "dive";
+				this.jumpChain = 0;
+				this.snapFacingToVelocity();
+				haptic(15);
 			}
+		}
+
+		if (this.state === "ground_pound_start") {
+			this.groundPoundStartT += dt;
+			this.velocity.x = approach(this.velocity.x, 0, 28 * dt);
+			this.velocity.z = approach(this.velocity.z, 0, 28 * dt);
+			// Let gravMult (reduced gravity, below) govern the hang — no per-frame
+			// clamp, otherwise groundPoundStartGravityMult becomes a dead knob.
+			if (this.groundPoundStartT >= config.groundPoundStartMs / 1000) {
+				this.state = "ground_pound";
+				this.groundPoundStartT = 0;
+				this.velocity.x *= 0.05;
+				this.velocity.z *= 0.05;
+				this.velocity.y = config.groundPoundVel;
+			}
+		}
 
 		// Variable jump cut (M64-style gravity multiplier)
 		const cuttable =
-			this.state === 'airborne' &&
+			this.state === "airborne" &&
 			(this.jumpChain === 1 || this.jumpChain === 2 || this.jumpChain === 3);
 		const cutActive = cuttable && !input.jumpHeld && this.velocity.y > 0;
 		let gravMult = cutActive ? config.jumpAscentCutMult : 1;
 
+		if (this.state === "ground_pound_start")
+			gravMult *= config.groundPoundStartGravityMult;
+
 		// Wall-slide cling: reduced gravity while hugging wall
-		if (this.state === 'wall_slide') gravMult *= config.wallSlideGravityMult;
+		if (this.state === "wall_slide") gravMult *= config.wallSlideGravityMult;
 
 		this.velocity.y += config.gravity * gravMult * dt;
-		if (this.velocity.y < -config.terminalVel) this.velocity.y = -config.terminalVel;
+		if (this.velocity.y < -config.terminalVel)
+			this.velocity.y = -config.terminalVel;
 
-		const desired = { x: this.velocity.x * dt, y: this.velocity.y * dt, z: this.velocity.z * dt };
+		const desired = {
+			x: this.velocity.x * dt,
+			y: this.velocity.y * dt,
+			z: this.velocity.z * dt,
+		};
 		this.controller.computeColliderMovement(this.collider, desired);
 
 		const wasGrounded = this.grounded;
@@ -462,33 +527,43 @@ export class Player {
 			if (!wasGrounded) {
 				const landVy = this.velocity.y;
 				const fellFast = landVy < -15;
+				const poundLikeImpact =
+					this.state === "ground_pound" || this.state === "ground_pound_start";
 				// Trigger land-squash for any non-trivial fall; scale magnitude with vy.
-				if (landVy < -5) {
+				if (poundLikeImpact) {
+					this.landingSquashT = Math.max(
+						this.landingSquashT,
+						config.groundPoundImpactSquashMs / 1000,
+					);
+				} else if (landVy < -5) {
 					this.landingSquashT = Math.min(0.18, 0.08 + Math.abs(landVy) * 0.008);
 					this.landImpactPending = true;
 				}
-				if (this.state === 'ground_pound') {
+				if (poundLikeImpact) {
+					this.velocity.x = 0;
+					this.velocity.z = 0;
 					this.velocity.y = config.groundPoundBounce;
 					this.poundImpactPending = true;
+					this.groundPoundStartT = 0;
 					haptic(60);
 				} else if (this.velocity.y < 0) {
 					this.velocity.y = 0;
 				}
-				if (this.state === 'dive') {
+				if (this.state === "dive") {
 					this.velocity.x *= 0.3;
 					this.velocity.z *= 0.3;
 				}
-				if (fellFast && this.state !== 'ground_pound') haptic(25);
+				if (fellFast && !poundLikeImpact) haptic(25);
 				this.timeSinceLanding = 0;
 				this.chainOnLanding = this.jumpChain;
 				this.jumpChain = 0;
 				// State will be re-evaluated top-of-loop next tick
-				this.state = 'grounded';
+				this.state = "grounded";
 			} else if (this.velocity.y < 0) {
 				this.velocity.y = 0;
 			}
 		} else if (wasGrounded) {
-			this.state = 'airborne';
+			this.state = "airborne";
 		}
 
 		// Apply slope physics for slope_slide state (after grounded updates)
@@ -496,7 +571,9 @@ export class Player {
 
 		// Wall detection (capture contact only — state change happens after ledge check).
 		this.timeSinceWall += dt;
-		const wallHit = this.grounded ? null : queryWallContact(physics, this.collider, this.body);
+		const wallHit = this.grounded
+			? null
+			: queryWallContact(physics, this.collider, this.body);
 		if (wallHit) {
 			this.wallNormal = wallHit;
 			this.timeSinceWall = 0;
@@ -507,7 +584,7 @@ export class Player {
 		// past a wall doesn't magnet-snap.
 		const horizSp = Math.hypot(this.velocity.x, this.velocity.z);
 		const ledgeEligibleState =
-			this.state === 'airborne' || this.state === 'wall_slide';
+			this.state === "airborne" || this.state === "wall_slide";
 		let hasIntent = false;
 		if (this.wallNormal) {
 			const inputMag = Math.hypot(mx, mz);
@@ -516,7 +593,8 @@ export class Player {
 					? (mx * -this.wallNormal.x + mz * -this.wallNormal.z) / inputMag
 					: 0;
 			const velIntoWall =
-				this.velocity.x * -this.wallNormal.x + this.velocity.z * -this.wallNormal.z;
+				this.velocity.x * -this.wallNormal.x +
+				this.velocity.z * -this.wallNormal.z;
 			hasIntent = inputIntoWall > 0.3 || velIntoWall > 2;
 		}
 		if (
@@ -531,7 +609,7 @@ export class Player {
 				collider: this.collider,
 				body: this.body,
 				wallNormal: this.wallNormal,
-				velocity: this.velocity
+				velocity: this.velocity,
 			});
 			if (ledge) {
 				this.ledgePos = ledge.pos;
@@ -539,7 +617,7 @@ export class Player {
 				this.ledgeBodyHandle = ledge.bodyHandle;
 				this.body.setTranslation(ledge.pos, true);
 				this.velocity.set(0, 0, 0);
-				this.state = 'ledge_hang';
+				this.state = "ledge_hang";
 				this.jumpChain = 0;
 				haptic(30);
 				this.mesh.position.set(ledge.pos.x, ledge.pos.y, ledge.pos.z);
@@ -548,15 +626,25 @@ export class Player {
 		}
 
 		// Now commit wall_slide state if we didn't grab anything.
-		if (wallHit && this.velocity.y < 0 && this.state !== 'ground_pound' && this.state !== 'dive') {
-			this.state = 'wall_slide';
+		if (
+			wallHit &&
+			this.velocity.y < 0 &&
+			this.state !== "ground_pound_start" &&
+			this.state !== "ground_pound" &&
+			this.state !== "dive"
+		) {
+			this.state = "wall_slide";
 			this.velocity.y = Math.max(this.velocity.y, -2.5);
 		}
 
 		// Commit movement
 		const corrected = this.controller.computedMovement();
 		const pos = this.body.translation();
-		const next = { x: pos.x + corrected.x, y: pos.y + corrected.y, z: pos.z + corrected.z };
+		const next = {
+			x: pos.x + corrected.x,
+			y: pos.y + corrected.y,
+			z: pos.z + corrected.z,
+		};
 		this.body.setNextKinematicTranslation(next);
 
 		if (next.y < -20) this.respawn();
@@ -565,10 +653,14 @@ export class Player {
 		this.updateVisuals(dt);
 	}
 
-	private handleLedgeHang(input: InputState, physics: Physics, dt: number): void {
+	private handleLedgeHang(
+		input: InputState,
+		physics: Physics,
+		dt: number,
+	): void {
 		if (!this.ledgePos) {
 			this.climbIntentT = 0;
-			this.state = 'airborne';
+			this.state = "airborne";
 			return;
 		}
 
@@ -578,13 +670,16 @@ export class Player {
 			const durSec = config.ledgeClimbDurationMs / 1000;
 			const t = Math.min(1, this.climbT / durSec);
 			const eased = t * t * (3 - 2 * t);
-			const x = this.climbStart.x + (this.climbEnd.x - this.climbStart.x) * eased;
-			const y = this.climbStart.y + (this.climbEnd.y - this.climbStart.y) * eased;
-			const z = this.climbStart.z + (this.climbEnd.z - this.climbStart.z) * eased;
+			const x =
+				this.climbStart.x + (this.climbEnd.x - this.climbStart.x) * eased;
+			const y =
+				this.climbStart.y + (this.climbEnd.y - this.climbStart.y) * eased;
+			const z =
+				this.climbStart.z + (this.climbEnd.z - this.climbStart.z) * eased;
 			this.body.setTranslation({ x, y, z }, true);
 			this.mesh.position.set(x, y, z);
 			if (t >= 1) {
-				this.state = 'grounded';
+				this.state = "grounded";
 				this.ledgePos = null;
 				this.ledgeNormal = null;
 				this.ledgeBodyHandle = null;
@@ -607,14 +702,23 @@ export class Player {
 		const ln = this.ledgeNormal ?? this.wallNormal;
 		const intoWall = ln
 			? new THREE.Vector3(-ln.x, 0, -ln.z).normalize()
-			: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
+			: new THREE.Vector3(
+					-Math.sin(this.facingYaw),
+					0,
+					-Math.cos(this.facingYaw),
+				);
 		const tangent = ln
 			? new THREE.Vector3(-ln.z, 0, ln.x).normalize()
-			: new THREE.Vector3(Math.cos(this.facingYaw), 0, -Math.sin(this.facingYaw));
+			: new THREE.Vector3(
+					Math.cos(this.facingYaw),
+					0,
+					-Math.sin(this.facingYaw),
+				);
 		const alongInput = mx * tangent.x + mz * tangent.z;
 		const intoWallInput = mx * intoWall.x + mz * intoWall.z;
 		const wantsShimmy = Math.abs(alongInput) > config.ledgeShimmyDeadzone;
-		const wantsClimb = intoWallInput > config.ledgeClimbInputDeadzone && !wantsShimmy;
+		const wantsClimb =
+			intoWallInput > config.ledgeClimbInputDeadzone && !wantsShimmy;
 		const wantsDrop = intoWallInput < -config.ledgeClimbInputDeadzone;
 
 		// Shimmy along ledge tangent
@@ -626,7 +730,7 @@ export class Player {
 			const candidate = {
 				x: this.ledgePos.x + tangent.x * step,
 				y: this.ledgePos.y,
-				z: this.ledgePos.z + tangent.z * step
+				z: this.ledgePos.z + tangent.z * step,
 			};
 			if (verifyLedgeAt(physics, this.collider, ln, candidate)) {
 				this.ledgePos = candidate;
@@ -641,7 +745,10 @@ export class Player {
 
 		// Target facing: wall-direction if still, tangent-direction if shimmying.
 		if (this.shimmyDir !== 0) {
-			this.targetYaw = Math.atan2(-tangent.x * this.shimmyDir, -tangent.z * this.shimmyDir);
+			this.targetYaw = Math.atan2(
+				-tangent.x * this.shimmyDir,
+				-tangent.z * this.shimmyDir,
+			);
 		} else {
 			this.targetYaw = Math.atan2(-intoWall.x, -intoWall.z);
 		}
@@ -659,7 +766,7 @@ export class Player {
 			const candidateEnd = {
 				x: this.ledgePos.x + intoWall.x * 0.7,
 				y: this.ledgePos.y + HEIGHT + 0.3,
-				z: this.ledgePos.z + intoWall.z * 0.7
+				z: this.ledgePos.z + intoWall.z * 0.7,
 			};
 			if (verifyClearanceAbove(physics, this.collider, candidateEnd)) {
 				this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
@@ -673,7 +780,7 @@ export class Player {
 			}
 		} else if (input.jumpPressed) {
 			this.velocity.y = config.jumpVel;
-			this.state = 'airborne';
+			this.state = "airborne";
 			this.ledgePos = null;
 			this.ledgeNormal = null;
 			this.ledgeBodyHandle = null;
@@ -682,7 +789,7 @@ export class Player {
 			this.jumpChain = 1;
 			haptic(15);
 		} else if (input.crouchPressed || wantsDrop) {
-			this.state = 'airborne';
+			this.state = "airborne";
 			this.ledgePos = null;
 			this.ledgeNormal = null;
 			this.ledgeBodyHandle = null;
@@ -706,12 +813,12 @@ export class Player {
 			timeSinceGrounded: this.timeSinceGrounded,
 			crouching: this.crouching,
 			currentScaleY: this.visualGroup.scale.y,
-			landingSquashT: this.landingSquashT
+			landingSquashT: this.landingSquashT,
 		});
 		this.facingYaw = pose.facingYaw;
 		this.pitchAngle = pose.pitchAngle;
 		this.yawSpin = pose.yawSpin;
-		this.visualGroup.rotation.set(pose.renderPitch, pose.renderYaw, 0, 'YXZ');
+		this.visualGroup.rotation.set(pose.renderPitch, pose.renderYaw, 0, "YXZ");
 		this.visualGroup.scale.y = pose.scaleY;
 		this.visualGroup.position.y = pose.offsetY;
 
@@ -733,13 +840,13 @@ export class Player {
 		const n = this.slopeNormal.clone().normalize();
 		const gAlong = g.clone().sub(n.clone().multiplyScalar(g.dot(n)));
 
-		if (this.state === 'slope_slide') {
+		if (this.state === "slope_slide") {
 			// No traction — gravity-along dominates. Decay any lateral control remnants.
 			this.velocity.x *= 0.98;
 			this.velocity.z *= 0.98;
 			this.velocity.x += gAlong.x * dt;
 			this.velocity.z += gAlong.z * dt;
-		} else if (this.state !== 'crouch_slide') {
+		} else if (this.state !== "crouch_slide") {
 			// Gentle slopes, normal stance: downhill boost if moving with fall direction
 			const horizVel = new THREE.Vector3(this.velocity.x, 0, this.velocity.z);
 			const horizFall = new THREE.Vector3(gAlong.x, 0, gAlong.z);
@@ -747,7 +854,10 @@ export class Player {
 			const horizFallDir = horizFall.clone().normalize();
 			const alignment = horizVel.dot(horizFallDir);
 			if (alignment > 0) {
-				const boost = config.slopeBoost * (this.slopeAngleDeg / config.slopeSlideAngleDeg) * dt;
+				const boost =
+					config.slopeBoost *
+					(this.slopeAngleDeg / config.slopeSlideAngleDeg) *
+					dt;
 				this.velocity.x += horizFallDir.x * boost;
 				this.velocity.z += horizFallDir.z * boost;
 			}
@@ -760,7 +870,7 @@ export class Player {
 		this.lastWallKickNormal = { x: this.wallNormal.x, z: this.wallNormal.z };
 		this.timeSinceWallKick = 0;
 		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
-		this.state = 'airborne';
+		this.state = "airborne";
 		this.jumpChain = 1;
 		this.jumpBufferT = 999;
 		this.wallNormal = null;
@@ -772,7 +882,7 @@ export class Player {
 		input: InputState,
 		horizSpeed: number,
 		mx: number,
-		mz: number
+		mz: number,
 	): void {
 		this.timeSinceGrounded = 999;
 		this.jumpBufferT = 999;
@@ -786,14 +896,15 @@ export class Player {
 			velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
 			facingYaw: this.facingYaw,
 			chainOnLanding: this.chainOnLanding,
-			timeSinceLanding: this.timeSinceLanding
+			timeSinceLanding: this.timeSinceLanding,
 		});
 		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
 		this.state = result.state;
 		this.jumpChain = result.jumpChain;
 
-		if (result.facing === 'snap-to-velocity') this.snapFacingToVelocity();
-		else if (typeof result.facing === 'object') this.setFacing(result.facing.yaw);
+		if (result.facing === "snap-to-velocity") this.snapFacingToVelocity();
+		else if (typeof result.facing === "object")
+			this.setFacing(result.facing.yaw);
 
 		this.timeSinceLanding = 999;
 	}
@@ -830,7 +941,7 @@ export class Player {
 			speed: Math.hypot(this.velocity.x, this.velocity.z),
 			grounded: this.grounded,
 			slopeAngleDeg: this.slopeAngleDeg,
-			surface: this.surface
+			surface: this.surface,
 		};
 	}
 
@@ -846,7 +957,9 @@ export class Player {
 
 	get wallKickReady(): boolean {
 		return (
-			!this.grounded && !!this.wallNormal && this.timeSinceWall <= config.wallStickMs / 1000
+			!this.grounded &&
+			!!this.wallNormal &&
+			this.timeSinceWall <= config.wallStickMs / 1000
 		);
 	}
 
@@ -869,7 +982,7 @@ export class Player {
 	}
 
 	get inLedgeHang(): boolean {
-		return this.state === 'ledge_hang';
+		return this.state === "ledge_hang";
 	}
 
 	/** Consume the pound-landing event (true once per impact). */
@@ -911,28 +1024,29 @@ export class Player {
 	private shouldTrackFacingFromVelocity(horizSpeed: number): boolean {
 		return (
 			horizSpeed > 0.5 &&
-			this.state !== 'skid' &&
-			this.state !== 'wall_slide' &&
+			this.state !== "skid" &&
+			this.state !== "wall_slide" &&
 			!this.isFacingLockedMove()
 		);
 	}
 
 	private shouldRotateTowardTarget(): boolean {
 		return (
-			this.state !== 'skid' &&
-			this.state !== 'wall_slide' &&
+			this.state !== "skid" &&
+			this.state !== "wall_slide" &&
 			!this.isFacingLockedMove()
 		);
 	}
 
 	private isFacingLockedMove(): boolean {
 		return (
-			this.state === 'backflip' ||
-			this.state === 'long_jump' ||
-			this.state === 'side_flip' ||
-			this.state === 'dive' ||
-			this.state === 'ground_pound' ||
-			(this.state === 'airborne' && this.jumpChain === 3)
+			this.state === "backflip" ||
+			this.state === "long_jump" ||
+			this.state === "side_flip" ||
+			this.state === "dive" ||
+			this.state === "ground_pound_start" ||
+			this.state === "ground_pound" ||
+			(this.state === "airborne" && this.jumpChain === 3)
 		);
 	}
 
@@ -978,7 +1092,10 @@ function lerpAngle(current: number, target: number, step: number): number {
 }
 
 function haptic(ms: number): void {
-	if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+	if (
+		typeof navigator !== "undefined" &&
+		typeof navigator.vibrate === "function"
+	) {
 		navigator.vibrate(ms);
 	}
 }

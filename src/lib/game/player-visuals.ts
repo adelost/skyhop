@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { PlayerState } from './player';
-import type { WallNormal } from './player-queries';
-import { config } from './config.svelte';
-import { RADIUS, HEIGHT } from './player-constants';
+import * as THREE from "three";
+import type { PlayerState } from "./player";
+import type { WallNormal } from "./player-queries";
+import { config } from "./config.svelte";
+import { RADIUS, HEIGHT } from "./player-constants";
 
 const HALF_BODY = HEIGHT / 2 + RADIUS; // 0.8
 
@@ -51,7 +51,7 @@ export function computePose(input: PoseInput): PoseOutput {
 		grounded,
 		timeSinceGrounded,
 		crouching,
-		currentScaleY
+		currentScaleY,
 	} = input;
 	let { pitchAngle, yawSpin } = input;
 
@@ -68,42 +68,49 @@ export function computePose(input: PoseInput): PoseOutput {
 	let renderYaw = newFacingYaw;
 	let targetScaleY = 1;
 
-	if (state === 'long_jump') {
+	if (state === "long_jump") {
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 3, 10 * dt);
 		renderPitch = pitchAngle;
-	} else if (state === 'dive') {
+	} else if (state === "dive") {
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 2, 12 * dt);
 		renderPitch = pitchAngle;
-	} else if (state === 'backflip') {
+	} else if (state === "backflip") {
 		pitchAngle += 8 * dt;
 		renderPitch = pitchAngle;
-	} else if (state === 'side_flip') {
+	} else if (state === "side_flip") {
 		pitchAngle -= 12 * dt;
 		renderPitch = pitchAngle;
-	} else if (state === 'ground_pound') {
-		pitchAngle -= 18 * dt;
+	} else if (state === "ground_pound_start") {
+		// Quick tuck/somersault before the actual stomp commits downward.
+		pitchAngle -= 22 * dt;
 		renderPitch = pitchAngle;
-	} else if (state === 'airborne' && input.jumpChain === 3) {
+		targetScaleY = 0.72;
+	} else if (state === "ground_pound") {
+		// Snap back into a feet-down stomp rather than continuing to tumble.
+		pitchAngle = lerpToward(pitchAngle, 0.08, 22 * dt);
+		renderPitch = pitchAngle;
+		targetScaleY = 0.92;
+	} else if (state === "airborne" && input.jumpChain === 3) {
 		pitchAngle -= 6.5 * dt;
 		renderPitch = pitchAngle;
-	} else if (state === 'wall_slide' && wallNormal) {
+	} else if (state === "wall_slide" && wallNormal) {
 		renderYaw = Math.atan2(wallNormal.x, wallNormal.z);
 		const target = (config.wallSlidePoseDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, target, config.poseLerpRate * dt);
 		renderPitch = pitchAngle;
-	} else if (state === 'ledge_hang') {
+	} else if (state === "ledge_hang") {
 		const target = (config.ledgePoseDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, target, config.poseLerpRate * dt);
 		renderPitch = pitchAngle;
-	} else if (state === 'skid') {
+	} else if (state === "skid") {
 		const targetLean = (config.skidLeanDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, targetLean, 10 * dt);
 		renderPitch = pitchAngle;
-	} else if (state === 'crouch_slide') {
+	} else if (state === "crouch_slide") {
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 2, 12 * dt);
 		renderPitch = pitchAngle;
 		targetScaleY = 0.55;
-	} else if (state === 'slope_slide') {
+	} else if (state === "slope_slide") {
 		pitchAngle = lerpToward(pitchAngle, Math.PI / 5, 10 * dt);
 		renderPitch = pitchAngle;
 		targetScaleY = 0.7;
@@ -111,7 +118,7 @@ export function computePose(input: PoseInput): PoseOutput {
 		// Decay accumulated rotation back to upright. Normalize to [-π, π] first
 		// so we don't have to unwind multiple full somersaults.
 		const tau = Math.PI * 2;
-		pitchAngle = (((pitchAngle + Math.PI) % tau) + tau) % tau - Math.PI;
+		pitchAngle = ((((pitchAngle + Math.PI) % tau) + tau) % tau) - Math.PI;
 		pitchAngle = lerpToward(pitchAngle, 0, 12 * dt);
 		yawSpin = lerpToward(yawSpin, 0, 8 * dt);
 		renderPitch = pitchAngle;
@@ -123,16 +130,21 @@ export function computePose(input: PoseInput): PoseOutput {
 	if (
 		crouching &&
 		recentlyGrounded &&
-		state !== 'crouch_slide' &&
-		state !== 'slope_slide'
+		state !== "crouch_slide" &&
+		state !== "slope_slide"
 	) {
 		targetScaleY = 0.55;
 	}
 
 	// Landing squash: multiply target scale down briefly right after a hard landing.
 	// landingSquashT decays linearly from its initial value toward 0 each frame.
-	const squashMaxT = 0.18;
-	const squashFrac = Math.max(0, Math.min(1, input.landingSquashT / squashMaxT));
+	// Window matches the largest value player.ts can assign (pound impact) so
+	// early frames don't saturate at max depth instead of easing in.
+	const squashMaxT = Math.max(0.18, config.groundPoundImpactSquashMs / 1000);
+	const squashFrac = Math.max(
+		0,
+		Math.min(1, input.landingSquashT / squashMaxT),
+	);
 	const squashMult = 1 - squashFrac * 0.3; // 1.0 → 0.7 at peak squash
 
 	const scaleY = lerpToward(currentScaleY, targetScaleY * squashMult, 15 * dt);
@@ -145,22 +157,23 @@ export function computePose(input: PoseInput): PoseOutput {
 		renderYaw,
 		renderPitch,
 		scaleY,
-		offsetY
+		offsetY,
 	};
 }
 
 function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
-	if (state === 'skid' || state === 'wall_slide') return false;
+	if (state === "skid" || state === "wall_slide") return false;
 	if (
-		state === 'backflip' ||
-		state === 'long_jump' ||
-		state === 'side_flip' ||
-		state === 'dive' ||
-		state === 'ground_pound'
+		state === "backflip" ||
+		state === "long_jump" ||
+		state === "side_flip" ||
+		state === "ground_pound_start" ||
+		state === "dive" ||
+		state === "ground_pound"
 	) {
 		return false;
 	}
-	if (state === 'airborne' && jumpChain === 3) return false;
+	if (state === "airborne" && jumpChain === 3) return false;
 	return true;
 }
 
@@ -181,7 +194,7 @@ export type LimbTargets = {
 export function computeLimbs(
 	state: PlayerState,
 	horizSpeed: number,
-	accumTime: number
+	accumTime: number,
 ): LimbTargets {
 	// Defaults: arms at sides, feet straight below. All pose branches override.
 	const shoulder = 0.15; // Y offset for arms in stand pose
@@ -193,7 +206,7 @@ export function computeLimbs(
 
 	// Running swing for ground states. Phase from accumulated time (simple sine).
 	// Faster horizontal speed → wider swing + higher frequency.
-	const isGroundish = state === 'grounded' || state === 'skid';
+	const isGroundish = state === "grounded" || state === "skid";
 	if (isGroundish && horizSpeed > 1) {
 		const intensity = Math.min(1, horizSpeed / 6);
 		const freq = 6 + intensity * 3;
@@ -209,8 +222,8 @@ export function computeLimbs(
 	}
 
 	switch (state) {
-		case 'long_jump':
-		case 'dive': {
+		case "long_jump":
+		case "dive": {
 			// Superman: arms forward, legs back
 			armL.set(-0.3, 0.25, -0.5);
 			armR.set(0.3, 0.25, -0.5);
@@ -218,7 +231,7 @@ export function computeLimbs(
 			footR.set(0.15, -0.2, 0.3);
 			break;
 		}
-		case 'backflip': {
+		case "backflip": {
 			// Arms tucked, legs tucked — compact rotation
 			armL.set(-0.25, 0.15, -0.25);
 			armR.set(0.25, 0.15, -0.25);
@@ -226,21 +239,29 @@ export function computeLimbs(
 			footR.set(0.15, -0.35, -0.2);
 			break;
 		}
-		case 'side_flip': {
+		case "side_flip": {
 			// Windmill: arms out wide
 			armL.set(-0.55, 0.4, 0);
 			armR.set(0.55, 0.4, 0);
 			break;
 		}
-		case 'ground_pound': {
-			// Arms crossed over chest, legs straight down driving into ground
-			armL.set(0.1, 0.15, -0.15);
-			armR.set(-0.1, 0.15, -0.15);
-			footL.set(-0.1, footY - 0.05, 0);
-			footR.set(0.1, footY - 0.05, 0);
+		case "ground_pound_start": {
+			// Tight tuck before the slam.
+			armL.set(-0.22, 0.18, -0.28);
+			armR.set(0.22, 0.18, -0.28);
+			footL.set(-0.14, -0.26, -0.22);
+			footR.set(0.14, -0.26, -0.22);
 			break;
 		}
-		case 'wall_slide': {
+		case "ground_pound": {
+			// Arms crossed over chest, legs straight down driving into ground.
+			armL.set(0.1, 0.15, -0.15);
+			armR.set(-0.1, 0.15, -0.15);
+			footL.set(-0.1, footY - 0.08, -0.04);
+			footR.set(0.1, footY - 0.08, -0.04);
+			break;
+		}
+		case "wall_slide": {
 			// Arms splayed against wall (nose faces wall so -Z = wall direction)
 			armL.set(-0.38, 0.45, -0.3);
 			armR.set(0.38, 0.45, -0.3);
@@ -248,7 +269,7 @@ export function computeLimbs(
 			footR.set(0.18, footY, -0.1);
 			break;
 		}
-		case 'ledge_hang': {
+		case "ledge_hang": {
 			// Arms straight up grabbing ledge; legs hang
 			armL.set(-0.28, 0.7, -0.25);
 			armR.set(0.28, 0.7, -0.25);
@@ -256,7 +277,7 @@ export function computeLimbs(
 			footR.set(0.18, footY + 0.05, 0.15);
 			break;
 		}
-		case 'crouch_slide': {
+		case "crouch_slide": {
 			// Flat on belly — arms forward, feet back. Scale.y is 0.55 so
 			// actual world placement is already low.
 			armL.set(-0.3, -0.1, -0.4);
@@ -265,7 +286,7 @@ export function computeLimbs(
 			footR.set(0.15, -0.1, 0.35);
 			break;
 		}
-		case 'slope_slide': {
+		case "slope_slide": {
 			// Sitting on slope — arms back for balance
 			armL.set(-0.45, 0.1, 0.3);
 			armR.set(0.45, 0.1, 0.3);
@@ -273,7 +294,7 @@ export function computeLimbs(
 			footR.set(0.15, footY, -0.15);
 			break;
 		}
-		case 'skid': {
+		case "skid": {
 			// Feet forward-braking, arms out to sides for balance
 			armL.set(-0.55, 0.2, 0);
 			armR.set(0.55, 0.2, 0);
@@ -281,7 +302,7 @@ export function computeLimbs(
 			footR.set(0.18, footY, -0.2);
 			break;
 		}
-		case 'airborne': {
+		case "airborne": {
 			// Simple jump pose: arms slightly up
 			armL.set(-0.35, 0.3, -0.1);
 			armR.set(0.35, 0.3, -0.1);
