@@ -500,15 +500,21 @@ export class Player {
 			}
 		}
 
-		// Variable jump cut (M64-style gravity multiplier)
+		// Variable jump cut (M64 mario_step.c:529): only kicks in while ascending
+		// fast (vy > jumpCutMinVel ≈ 6 m/s = M64's 20 u/f threshold). Below that
+		// the boost is already gone and an extra cut would just deaden the arc.
 		const cuttable =
 			this.state === "airborne" &&
 			(this.jumpChain === 1 || this.jumpChain === 2 || this.jumpChain === 3);
-		const cutActive = cuttable && !input.jumpHeld && this.velocity.y > 0;
+		const cutActive =
+			cuttable && !input.jumpHeld && this.velocity.y > config.jumpCutMinVel;
 		let gravMult = cutActive ? config.jumpAscentCutMult : 1;
 
 		if (this.state === "ground_pound_start")
 			gravMult *= config.groundPoundStartGravityMult;
+
+		// Long jump uses half gravity so the arc carries (M64 mario_step.c:543).
+		if (this.state === "long_jump") gravMult *= config.longJumpGravityMult;
 
 		// Wall-slide cling: reduced gravity while hugging wall
 		if (this.state === "wall_slide") gravMult *= config.wallSlideGravityMult;
@@ -900,6 +906,8 @@ export class Player {
 			facingYaw: this.facingYaw,
 			chainOnLanding: this.chainOnLanding,
 			timeSinceLanding: this.timeSinceLanding,
+			state: this.state,
+			inSkid: this.state === "skid",
 		});
 		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
 		this.state = result.state;

@@ -20,6 +20,11 @@ export type JumpContext = {
 	facingYaw: number;
 	chainOnLanding: number;
 	timeSinceLanding: number;
+	/** M64 long jump only fires from a real crouch-slide. */
+	state: PlayerState;
+	/** M64 side flip only fires from skid (turnaround) — not arbitrary input
+	 * reversal. Gate side flip on this rather than on velocity vs input. */
+	inSkid: boolean;
 };
 
 /**
@@ -27,7 +32,7 @@ export type JumpContext = {
  * Priority: long jump > backflip > side flip > chain jump > normal jump.
  */
 export function computeJump(ctx: JumpContext): JumpOutcome {
-	const { crouchHeld, mx, mz, horizSpeed, velocity, facingYaw } = ctx;
+	const { crouchHeld, mx, mz, horizSpeed, velocity, facingYaw, state, inSkid } = ctx;
 
 	const inputMag = Math.hypot(mx, mz);
 	const inputDirX = inputMag > 0.3 ? mx / inputMag : 0;
@@ -35,16 +40,15 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 
 	const velDirX = horizSpeed > 0.5 ? velocity.x / horizSpeed : 0;
 	const velDirZ = horizSpeed > 0.5 ? velocity.z / horizSpeed : 0;
-	const reversed =
-		inputMag > 0.5 &&
-		horizSpeed > 0.5 &&
-		inputDirX * velDirX + inputDirZ * velDirZ < -0.5;
 
 	const windowSec = config.doubleJumpWindowMs / 1000;
 	const canChain =
 		ctx.timeSinceLanding <= windowSec && ctx.chainOnLanding >= 1 && horizSpeed > 2;
 
-	if (crouchHeld && horizSpeed > 3) {
+	// M64 long jump (mario_actions_moving.c:1458): only from crouch-slide, not
+	// from arbitrary "crouch held + speed". Gating on state keeps long jump as
+	// a deliberate slide → A-press combo, not a get-out-of-jail dash.
+	if (state === 'crouch_slide' && horizSpeed > 3) {
 		const dirX = velDirX || inputDirX;
 		const dirZ = velDirZ || inputDirZ;
 		return {
@@ -72,12 +76,19 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 			facing: { yaw: facingYaw }
 		};
 	}
-	if (reversed && horizSpeed > 3) {
+	// M64 side flip is the A-press during the turnaround/skid state, not a free
+	// "input reversed in air" detector. Bound here on inSkid (set when player
+	// is in the skid state machine entry from the main step loop).
+	if (inSkid) {
+		// Side flip launches in input direction; falls back to current velocity
+		// direction when the stick has already returned to neutral mid-skid.
+		const dirX = inputDirX || velDirX;
+		const dirZ = inputDirZ || velDirZ;
 		return {
 			velocity: {
-				x: inputDirX * config.sideFlipVelXZ,
+				x: dirX * config.sideFlipVelXZ,
 				y: config.sideFlipVelY,
-				z: inputDirZ * config.sideFlipVelXZ
+				z: dirZ * config.sideFlipVelXZ
 			},
 			state: 'side_flip',
 			jumpChain: 0,

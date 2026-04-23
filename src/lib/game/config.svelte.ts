@@ -13,8 +13,11 @@ export const config = $state({
 	airControl: 0.3,
 
 	// Variable jump height (M64 style): when A is NOT held during ascent, gravity is
-	// multiplied by ~4 so the jump cuts short. Holding A = full height.
+	// multiplied by ~4 so the jump cuts short. Holding A = full height. M64 only
+	// applies the cut while vy > 20 u/f = 6 m/s; below that the boost is already
+	// gone and additional cut would feel like a dead jump.
 	jumpAscentCutMult: 4,
+	jumpCutMinVel: 6,
 
 	// Vertical. M64 gravity -4 u/f² = -36 m/s². Terminal -75 u/f = 22.5 m/s.
 	gravity: -36,
@@ -46,13 +49,19 @@ export const config = $state({
 	//   wall kick  Y=62,  XZ = max(fVel, 24 u/f) = 7.2 m/s min
 	longJumpVelY: 9,
 	longJumpVelXZ: 14.4,
+	// M64 long jump uses half gravity (vel[1] -= 4.0f * 0.5f in mario_step.c)
+	// so the arc carries far. Without this the long jump feels like a flat dash.
+	longJumpGravityMult: 0.5,
 	backflipVelY: 18.6,
 	backflipVelXZ: -4.8,
 	sideFlipVelY: 18.6,
 	sideFlipVelXZ: 2.4, // M64: 8 u/f = 2.4 m/s. Own setting, decoupled from long jump.
 	wallKickVelY: 18.6,
 	wallKickVelXZ: 7.2,
-	wallStickMs: 167, // M64: 5 frames
+	// M64 wall-kick window = 2 frames "instant" (ACT_AIR_HIT_WALL) + 5 frames
+	// follow-up timer = 7 frames at 30fps ≈ 233ms. Earlier value (167ms) was
+	// only the follow-up window and missed the instant phase.
+	wallStickMs: 233,
 
 	// Aerial actions.
 	// Ground pound (M64 decomp act_ground_pound):

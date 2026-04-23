@@ -11,6 +11,7 @@
 		{ key: 'airControl', min: 0, max: 1, step: 0.05 },
 		{ key: 'jumpVel', min: 3, max: 25, step: 0.1 },
 		{ key: 'jumpAscentCutMult', min: 1, max: 10, step: 0.25 },
+		{ key: 'jumpCutMinVel', min: 0, max: 20, step: 0.5 },
 		{ key: 'gravity', min: -80, max: -5, step: 0.5 },
 		{ key: 'terminalVel', min: 10, max: 100, step: 0.5 },
 		{ key: 'coyoteMs', min: 0, max: 300, step: 10 },
@@ -22,6 +23,7 @@
 		{ key: 'tripleJumpVel', min: 5, max: 40, step: 0.1 },
 		{ key: 'longJumpVelY', min: 3, max: 20, step: 0.1 },
 		{ key: 'longJumpVelXZ', min: 5, max: 30, step: 0.1 },
+		{ key: 'longJumpGravityMult', min: 0.1, max: 1, step: 0.05 },
 		{ key: 'backflipVelY', min: 5, max: 30, step: 0.1 },
 		{ key: 'sideFlipVelY', min: 5, max: 30, step: 0.1 },
 		{ key: 'wallKickVelY', min: 3, max: 30, step: 0.1 },
@@ -91,6 +93,7 @@
 		config.airControl = 0.3;
 		config.jumpVel = 12.6;
 		config.jumpAscentCutMult = 4;
+		config.jumpCutMinVel = 6;
 		config.gravity = -36;
 		config.terminalVel = 22.5;
 		config.coyoteMs = 80;
@@ -103,12 +106,13 @@
 		config.tripleJumpVel = 20.7;
 		config.longJumpVelY = 9;
 		config.longJumpVelXZ = 14.4;
+		config.longJumpGravityMult = 0.5;
 		config.backflipVelY = 18.6;
 		config.backflipVelXZ = -4.8;
 		config.sideFlipVelY = 18.6;
 		config.wallKickVelY = 18.6;
 		config.wallKickVelXZ = 7.2;
-		config.wallStickMs = 167;
+		config.wallStickMs = 233;
 		config.groundPoundStartMs = 367;
 		config.groundPoundStartVelY = 6;
 		config.groundPoundStartGravityMult = 0;
