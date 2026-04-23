@@ -949,7 +949,14 @@ export class Player {
 
 		// Procedural limb posing — lerp each mitten/foot toward state target.
 		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-		const targets = computeLimbs(this.state, horizSpeed, this.accumTime);
+		const targets = computeLimbs({
+			state: this.state,
+			horizSpeed,
+			accumTime: this.accumTime,
+			stateTime: this.stateTime,
+			shimmyDir: this.shimmyDir,
+			jumpChain: this.jumpChain,
+		});
 		const limbLerp = Math.min(1, dt * 12);
 		this.limbs.armL.position.lerp(targets.armL, limbLerp);
 		this.limbs.armR.position.lerp(targets.armR, limbLerp);

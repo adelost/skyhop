@@ -96,15 +96,13 @@ export function computePose(input: PoseInput): PoseOutput {
 		renderPitch = pitchAngle;
 	} else if (state === "side_flip") {
 		// M64 ACT_SIDE_FLIP (mario_actions_airborne.c:608):
-		//   gfx.angle[1] += 0x8000  // render yaw flipped 180° from physics
-		// Combined with MARIO_ANIM_SLIDEFLIP (24-frame skeletal anim) this
-		// reads as the body flipping forward while traveling in the opposite
-		// direction. Without skeletal anim we approximate with:
-		//   - renderYaw = physics facing + π  (static 180° flip)
-		//   - one phase-eased forward somersault via pitch
-		const dur = Math.max(0.001, config.sideFlipRotationDuration);
-		const t = Math.min(1, input.stateTime / dur);
-		pitchAngle = easeInOutSine(t) * -(Math.PI * 2);
+		//   gfx.angle[1] += 0x8000   — render yaw flipped 180° from physics
+		// The body in MARIO_ANIM_SLIDEFLIP stays mostly upright; arms
+		// windmill and legs arc. Without skeletal anim we recreate the
+		// body attitude here (small lean, not a full rotation) and let
+		// computeLimbs drive the windmill/arc choreography.
+		const leanTarget = (config.sideFlipBodyLeanDeg * Math.PI) / 180;
+		pitchAngle = lerpToward(pitchAngle, leanTarget, 10 * dt);
 		renderPitch = pitchAngle;
 		renderYaw = newFacingYaw + Math.PI;
 		renderRoll = 0;
@@ -298,6 +296,15 @@ export type LimbTargets = {
 	footR: THREE.Vector3;
 };
 
+export type LimbInput = {
+	state: PlayerState;
+	horizSpeed: number;
+	accumTime: number;
+	stateTime: number;
+	shimmyDir: number;
+	jumpChain: number;
+};
+
 /**
  * Procedural limb positions per state. No rig — just target offsets in the
  * inner-group's local space, lerped toward each frame. Keeps the character
@@ -305,11 +312,9 @@ export type LimbTargets = {
  *
  * Convention: +Z = behind player (tail), -Z = in front (nose). +X = right.
  */
-export function computeLimbs(
-	state: PlayerState,
-	horizSpeed: number,
-	accumTime: number,
-): LimbTargets {
+export function computeLimbs(input: LimbInput): LimbTargets {
+	const { state, horizSpeed, accumTime, stateTime, shimmyDir, jumpChain } =
+		input;
 	// Defaults: arms at sides, feet straight below. All pose branches override.
 	const shoulder = 0.15; // Y offset for arms in stand pose
 	const footY = -HALF_BODY + 0.04;
@@ -346,17 +351,36 @@ export function computeLimbs(
 			break;
 		}
 		case "backflip": {
-			// Arms tucked, legs tucked — compact rotation
-			armL.set(-0.25, 0.15, -0.25);
-			armR.set(0.25, 0.15, -0.25);
-			footL.set(-0.15, -0.35, -0.2);
-			footR.set(0.15, -0.35, -0.2);
+			// Tuck (first half) → extend (second half). Drives a readable
+			// "compress → release" silhouette instead of a static shape.
+			const tDur = Math.max(0.001, config.backflipRotationDuration);
+			const tFrac = Math.min(1, stateTime / tDur);
+			const tuck = tFrac < 0.5 ? tFrac * 2 : (1 - tFrac) * 2; // 0→1→0
+			const r = 0.25 - tuck * 0.1; // arms come in as tuck deepens
+			const zBack = 0.15 + tuck * 0.18;
+			armL.set(-r, 0.18, -zBack);
+			armR.set(r, 0.18, -zBack);
+			const footZ = 0.1 - tuck * 0.4; // legs tuck toward the chest
+			footL.set(-0.15, -0.2 - tuck * 0.2, footZ);
+			footR.set(0.15, -0.2 - tuck * 0.2, footZ);
 			break;
 		}
 		case "side_flip": {
-			// Windmill: arms out wide
-			armL.set(-0.55, 0.4, 0);
-			armR.set(0.55, 0.4, 0);
+			// M64 MARIO_ANIM_SLIDEFLIP approximation: arms do a windmill around
+			// the shoulder axis over the duration; legs arc sideways. Body
+			// rotation is intentionally tiny (see computePose) — the flip
+			// illusion comes from the limb motion and the 180° yaw flip.
+			const dur = Math.max(0.001, config.sideFlipRotationDuration);
+			const phase = Math.min(1, stateTime / dur) * Math.PI * 2;
+			const spin = config.sideFlipArmSpinRate;
+			const p = phase * Math.max(1, spin / 4); // rough control over rev count
+			// Right arm sweeps the front hemisphere, left arm follows 180° off.
+			const r = 0.55;
+			armR.set(Math.cos(p) * r, 0.3 + Math.sin(p) * 0.35, 0);
+			armL.set(Math.cos(p + Math.PI) * r, 0.3 + Math.sin(p + Math.PI) * 0.35, 0);
+			// Legs arc out opposite of arms, tighter radius.
+			footL.set(-0.25, footY + Math.sin(p) * 0.15, Math.cos(p) * 0.2);
+			footR.set(0.25, footY + Math.sin(p + Math.PI) * 0.15, Math.cos(p + Math.PI) * 0.2);
 			break;
 		}
 		case "ground_pound_start": {
@@ -386,9 +410,26 @@ export function computeLimbs(
 		case "ledge_hang":
 		case "ledge_climb_slow":
 		case "ledge_climb_down": {
-			// Arms straight up grabbing ledge; legs hang
+			// Arms straight up grabbing ledge; legs hang. Body stays vertical
+			// (see computePose — ledgePoseDeg = 0); the hands do the work.
 			armL.set(-0.28, 0.7, -0.25);
 			armR.set(0.28, 0.7, -0.25);
+			// Shimmy: alternating hand-step cycle. Active hand rises + reaches
+			// in the travel direction, anchor hand stays put. Phase cycles at
+			// shimmyHandCycleHz.
+			if (state === "ledge_hang" && shimmyDir !== 0) {
+				const cycle = accumTime * config.shimmyHandCycleHz * Math.PI * 2;
+				const lift = config.shimmyHandLift;
+				const reach = config.shimmyHandReach * shimmyDir;
+				// Sin goes -1..1; clamp to 0..1 so only the "up half" of the cycle
+				// releases the hand.
+				const lPhase = Math.max(0, Math.sin(cycle));
+				const rPhase = Math.max(0, Math.sin(cycle + Math.PI));
+				armL.y += lPhase * lift;
+				armR.y += rPhase * lift;
+				armL.x += lPhase * reach;
+				armR.x += rPhase * reach;
+			}
 			footL.set(-0.18, footY + 0.05, 0.15);
 			footR.set(0.18, footY + 0.05, 0.15);
 			break;
@@ -436,9 +477,25 @@ export function computeLimbs(
 			break;
 		}
 		case "airborne": {
-			// Simple jump pose: arms slightly up
-			armL.set(-0.35, 0.3, -0.1);
-			armR.set(0.35, 0.3, -0.1);
+			if (jumpChain === 3) {
+				// Triple jump: phase-based tuck → extend silhouette, matches
+				// the forward somersault rotation in computePose. Compact in
+				// the middle of the rotation, opens up on the way out.
+				const tDur = Math.max(0.001, config.tripleRotationDuration);
+				const tFrac = Math.min(1, stateTime / tDur);
+				const tuck = tFrac < 0.5 ? tFrac * 2 : (1 - tFrac) * 2; // 0→1→0
+				const r = 0.28 - tuck * 0.1;
+				const zBack = 0.05 + tuck * 0.2;
+				armL.set(-r, 0.2, -zBack);
+				armR.set(r, 0.2, -zBack);
+				const footZ = 0.1 - tuck * 0.35;
+				footL.set(-0.15, -0.15 - tuck * 0.2, footZ);
+				footR.set(0.15, -0.15 - tuck * 0.2, footZ);
+			} else {
+				// Simple jump pose: arms slightly up
+				armL.set(-0.35, 0.3, -0.1);
+				armR.set(0.35, 0.3, -0.1);
+			}
 			break;
 		}
 	}

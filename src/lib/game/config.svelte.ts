@@ -56,11 +56,18 @@ export const config = $state({
 	backflipVelXZ: -4.8,
 	sideFlipVelY: 18.6,
 	sideFlipVelXZ: 2.4, // M64: 8 u/f = 2.4 m/s. Own setting, decoupled from long jump.
-	// Side flip visual: one full sideways roll over this duration (phase-eased),
-	// plus a yaw-spin during the first half to sell the pirouette. M64 uses
-	// MARIO_ANIM_SLIDEFLIP which is roll + yaw, not forward pitch.
+	// Side flip visual: M64 ACT_SIDE_FLIP flips render yaw 180° (angle[1]
+	// += 0x8000) and plays MARIO_ANIM_SLIDEFLIP. Without skeletal anim we
+	// approximate with: body stays mostly upright (small lean), arms do a
+	// full windmill, legs arc out. Primary flip illusion comes from the
+	// yaw-flip + limb choreography, not root rotation.
 	sideFlipRotationDuration: 0.5,
-	sideFlipYawSpinRate: 8,
+	sideFlipBodyLeanDeg: 20,
+	sideFlipArmSpinRate: 4, // arm windmill cycles per second
+	// Shimmy hand cycle: alternating release/re-grab while moving along ledge.
+	shimmyHandCycleHz: 2,
+	shimmyHandLift: 0.18,
+	shimmyHandReach: 0.2,
 	// Triple jump and backflip rotation: phase-based (easeInOutSine) instead
 	// of linear rate, so the somersault starts and ends softly — reads as a
 	// choreographed flip rather than a constant tumble.
@@ -164,7 +171,7 @@ export const config = $state({
 	ledgeShimmyDeadzone: 0.3,
 	ledgeClimbInputDeadzone: 0.6,
 	ledgeClimbCommitMs: 120, // require a short deliberate hold before pull-up
-	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
+	ledgePoseDeg: 0, // body hangs straight; hands handle the grab visually
 	ledgeClimbDurationMs: 420, // smooth pull-up animation length (legacy default)
 	// M64-style climb variants: fast = A-press (short), slow = forward-stick
 	// after hangMin (regular), down = back-stick + crouch (descend to airborne
