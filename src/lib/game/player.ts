@@ -21,6 +21,7 @@ export type PlayerState =
 	| 'grounded'
 	| 'airborne'
 	| 'wall_slide'
+	| 'ground_pound_start'
 	| 'ground_pound'
 	| 'dive'
 	| 'long_jump'
@@ -82,6 +83,10 @@ export class Player {
 	// Actual wall normal at chest hit — captured during grab, used for shimmy.
 	// Distinct from wallNormal (which comes from the coarse 4-cardinal query).
 	private ledgeNormal: WallNormal | null = null;
+	// RigidBody handle of the grabbed surface. If it matches a moving platform,
+	// we carry ledgePos by platform.delta each frame so shimmy still verifies
+	// against the actual wall when the platform bounces.
+	private ledgeBodyHandle: number | null = null;
 	private ledgeGrabCooldown = 0;
 
 	// One-shot event flags consumed by engine for effects (shake, dust).
@@ -90,6 +95,7 @@ export class Player {
 	private skidStartPending = false;
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
+	private groundPoundStartT = 0;
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -163,6 +169,27 @@ export class Player {
 		}
 	}
 
+	/**
+	 * Moving-platform carry for a grabbed ledge. If the player is hanging on a
+	 * kinematic moving platform, shift ledgePos by the platform's per-frame
+	 * delta so shimmy verifies against the actual wall (otherwise the platform
+	 * bounces out from under the pinned ledgePos and raycasts miss). Called
+	 * from engine each fixed step, before player.step().
+	 */
+	carryLedgeOnPlatform(platforms: MovingPlatform[]): void {
+		if (this.state !== 'ledge_hang' || !this.ledgePos || this.ledgeBodyHandle === null) return;
+		for (const p of platforms) {
+			if (p.bodyHandle === this.ledgeBodyHandle) {
+				this.ledgePos = {
+					x: this.ledgePos.x + p.delta.x,
+					y: this.ledgePos.y + p.delta.y,
+					z: this.ledgePos.z + p.delta.z
+				};
+				return;
+			}
+		}
+	}
+
 	respawn(): void {
 		this.body.setTranslation({ x: this.startPos.x, y: this.startPos.y, z: this.startPos.z }, true);
 		this.velocity.set(0, 0, 0);
@@ -182,6 +209,7 @@ export class Player {
 		this.timeSinceWallKick = 999;
 		this.ledgePos = null;
 		this.ledgeNormal = null;
+		this.ledgeBodyHandle = null;
 		this.ledgeGrabCooldown = 0;
 		this.climbT = -1;
 		this.shimmyDir = 0;
@@ -190,12 +218,13 @@ export class Player {
 		this.pitchAngle = 0;
 		this.yawSpin = 0;
 		this.crouching = false;
-		this.poundImpactPending = false;
-		this.landImpactPending = false;
-		this.skidStartPending = false;
-		this.landingSquashT = 0;
-		this.state = 'airborne';
-	}
+			this.poundImpactPending = false;
+			this.landImpactPending = false;
+			this.skidStartPending = false;
+			this.landingSquashT = 0;
+			this.groundPoundStartT = 0;
+			this.state = 'airborne';
+		}
 
 	step(dt: number, input: InputState, physics: Physics): void {
 		// Track crouch for visual purposes (outlives input frame)
@@ -265,17 +294,18 @@ export class Player {
 			}
 		}
 
-		// Horizontal accel/decel. Locked states keep their momentum.
+			// Horizontal accel/decel. Locked states keep their momentum.
 			const momentumLocked =
 				(!this.grounded &&
 					(this.state === 'long_jump' ||
 						this.state === 'backflip' ||
 						this.state === 'side_flip' ||
 						this.state === 'dive' ||
+						this.state === 'ground_pound_start' ||
 						this.state === 'ground_pound')) ||
 				this.state === 'slope_slide' ||
 				this.state === 'crouch_slide' ||
-			this.state === 'skid';
+				this.state === 'skid';
 
 		let groundRate: number;
 		if (hasInput) groundRate = onIce ? config.accel * config.iceFriction : config.accel;
@@ -506,6 +536,7 @@ export class Player {
 			if (ledge) {
 				this.ledgePos = ledge.pos;
 				this.ledgeNormal = ledge.normal;
+				this.ledgeBodyHandle = ledge.bodyHandle;
 				this.body.setTranslation(ledge.pos, true);
 				this.velocity.set(0, 0, 0);
 				this.state = 'ledge_hang';
@@ -556,6 +587,7 @@ export class Player {
 				this.state = 'grounded';
 				this.ledgePos = null;
 				this.ledgeNormal = null;
+				this.ledgeBodyHandle = null;
 				this.climbT = -1;
 				this.climbIntentT = 0;
 				this.ledgeGrabCooldown = 0.3;
@@ -644,6 +676,7 @@ export class Player {
 			this.state = 'airborne';
 			this.ledgePos = null;
 			this.ledgeNormal = null;
+			this.ledgeBodyHandle = null;
 			this.ledgeGrabCooldown = 0.3;
 			this.climbIntentT = 0;
 			this.jumpChain = 1;
@@ -652,6 +685,7 @@ export class Player {
 			this.state = 'airborne';
 			this.ledgePos = null;
 			this.ledgeNormal = null;
+			this.ledgeBodyHandle = null;
 			this.ledgeGrabCooldown = 0.3;
 			this.climbIntentT = 0;
 		}

@@ -93,6 +93,9 @@ export type LedgeGrabResult = {
 	pos: { x: number; y: number; z: number };
 	/** Wall-surface normal at the chest-hit point. Used for shimmy + pose. */
 	normal: WallNormal;
+	/** RigidBody handle of the grabbed surface. Used to carry ledgePos when
+	 * the grabbed body is a kinematic moving platform. null for static. */
+	bodyHandle: number | null;
 };
 
 /**
@@ -170,13 +173,15 @@ export function tryLedgeGrab(ctx: LedgeGrabContext): LedgeGrabResult | null {
 	const nMag = Math.hypot(nx, nz) || 1;
 	nx /= nMag;
 	nz /= nMag;
+	const parent = chestHit.collider.parent();
 	return {
 		pos: {
 			x: wallX - fwd.x * (RADIUS + 0.05),
 			y: grabY,
 			z: wallZ - fwd.z * (RADIUS + 0.05)
 		},
-		normal: { x: nx, z: nz }
+		normal: { x: nx, z: nz },
+		bodyHandle: parent ? parent.handle : null
 	};
 }
 

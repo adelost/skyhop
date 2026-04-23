@@ -194,6 +194,7 @@ export class Game {
 			this.simTime += FIXED_DT;
 			updateMovingPlatforms(this.movingPlatforms, this.physics, this.simTime);
 			this.player.carryOnPlatform(this.movingPlatforms, this.physics);
+			this.player.carryLedgeOnPlatform(this.movingPlatforms);
 			this.input.setCameraYaw(this.cameraYaw);
 			const snap = this.input.sample();
 			this.player.step(FIXED_DT, snap, this.physics);
