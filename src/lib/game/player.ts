@@ -41,11 +41,6 @@ export type DebugInfo = {
 	grounded: boolean;
 	slopeAngleDeg: number;
 	surface: string;
-	// TEMP shimmy diagnostics
-	shimmyTry: number; // attempts-counter
-	shimmyOk: number; // successes-counter
-	shimmyLn: string; // last ln value as "x,z"
-	shimmyBody: number; // ledgeBodyHandle or -1
 };
 
 export class Player {
@@ -101,10 +96,6 @@ export class Player {
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
 	private groundPoundStartT = 0;
-
-	// TEMP shimmy diagnostics
-	private shimmyTry = 0;
-	private shimmyOk = 0;
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -492,12 +483,18 @@ export class Player {
 		}
 
 		if (this.state === "ground_pound_start") {
+			const startupSec = Math.max(0.001, config.groundPoundStartMs / 1000);
 			this.groundPoundStartT += dt;
 			this.velocity.x = approach(this.velocity.x, 0, 28 * dt);
 			this.velocity.z = approach(this.velocity.z, 0, 28 * dt);
-			// Let gravMult (reduced gravity, below) govern the hang — no per-frame
-			// clamp, otherwise groundPoundStartGravityMult becomes a dead knob.
-			if (this.groundPoundStartT >= config.groundPoundStartMs / 1000) {
+			// SM64-like readability: first pop/tuck, then hover for a beat before
+			// committing to the slam. This makes the stomp legible instead of
+			// "press crouch -> instantly dive".
+			const startupFrac = Math.min(1, this.groundPoundStartT / startupSec);
+			const hangVel = startupFrac < 0.4 ? config.groundPoundStartVelY : 0.35;
+			const hangApproach = startupFrac < 0.4 ? 120 * dt : 45 * dt;
+			this.velocity.y = approach(this.velocity.y, hangVel, hangApproach);
+			if (this.groundPoundStartT >= startupSec) {
 				this.state = "ground_pound";
 				this.groundPoundStartT = 0;
 				this.velocity.x *= 0.05;
@@ -741,10 +738,7 @@ export class Player {
 				y: this.ledgePos.y,
 				z: this.ledgePos.z + tangent.z * step,
 			};
-			const ok = verifyLedgeAt(physics, this.collider, ln, candidate);
-			this.shimmyTry++;
-			if (ok) {
-				this.shimmyOk++;
+			if (verifyLedgeAt(physics, this.collider, ln, candidate)) {
 				this.ledgePos = candidate;
 			}
 		}
@@ -945,7 +939,6 @@ export class Player {
 	}
 
 	get debug(): DebugInfo {
-		const ln = this.ledgeNormal;
 		return {
 			state: this.state,
 			vx: this.velocity.x,
@@ -955,10 +948,6 @@ export class Player {
 			grounded: this.grounded,
 			slopeAngleDeg: this.slopeAngleDeg,
 			surface: this.surface,
-			shimmyTry: this.shimmyTry,
-			shimmyOk: this.shimmyOk,
-			shimmyLn: ln ? `${ln.x.toFixed(2)},${ln.z.toFixed(2)}` : "-",
-			shimmyBody: this.ledgeBodyHandle ?? -1,
 		};
 	}
 
