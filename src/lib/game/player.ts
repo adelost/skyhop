@@ -12,8 +12,8 @@ import {
 	verifyClearanceAbove,
 	type WallNormal
 } from './player-queries';
-import { computePose } from './player-visuals';
-import { buildPlayerMeshes } from './player-mesh';
+import { computePose, computeLimbs } from './player-visuals';
+import { buildPlayerMeshes, type Limbs } from './player-mesh';
 import { computeJump, computeWallKick } from './player-jumps';
 import { RADIUS, HEIGHT } from './player-constants';
 
@@ -45,6 +45,7 @@ export type DebugInfo = {
 export class Player {
 	readonly mesh: THREE.Group; // outer — physics-aligned (position only)
 	private visualGroup: THREE.Group; // inner — rotation + scale + crouch offset
+	private limbs: Limbs;
 	private body: RAPIER.RigidBody;
 	private controller: RAPIER.KinematicCharacterController;
 	private collider: RAPIER.Collider;
@@ -91,6 +92,7 @@ export class Player {
 	private pitchAngle = 0; // accumulated flip rotation (radians)
 	private yawSpin = 0; // extra yaw for side-flip pirouette
 	private crouching = false;
+	private accumTime = 0; // ticks up each step(); phase source for limb swing
 
 	private startPos: THREE.Vector3;
 
@@ -100,6 +102,7 @@ export class Player {
 		const meshes = buildPlayerMeshes();
 		this.mesh = meshes.outer;
 		this.visualGroup = meshes.inner;
+		this.limbs = meshes.limbs;
 		this.mesh.position.copy(spawn);
 		scene.add(this.mesh);
 
@@ -181,6 +184,7 @@ export class Player {
 	step(dt: number, input: InputState, physics: Physics): void {
 		// Track crouch for visual purposes (outlives input frame)
 		this.crouching = input.crouchHeld;
+		this.accumTime += dt;
 		if (this.landingSquashT > 0) this.landingSquashT = Math.max(0, this.landingSquashT - dt);
 
 		// Query slope/surface FIRST so this frame's movement knows about it.
@@ -633,6 +637,15 @@ export class Player {
 		this.visualGroup.rotation.set(pose.renderPitch, pose.renderYaw, 0, 'YXZ');
 		this.visualGroup.scale.y = pose.scaleY;
 		this.visualGroup.position.y = pose.offsetY;
+
+		// Procedural limb posing — lerp each mitten/foot toward state target.
+		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+		const targets = computeLimbs(this.state, horizSpeed, this.accumTime);
+		const limbLerp = Math.min(1, dt * 12);
+		this.limbs.armL.position.lerp(targets.armL, limbLerp);
+		this.limbs.armR.position.lerp(targets.armR, limbLerp);
+		this.limbs.footL.position.lerp(targets.footL, limbLerp);
+		this.limbs.footR.position.lerp(targets.footR, limbLerp);
 	}
 
 	private applySlopePhysics(dt: number): void {

@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import type { PlayerState } from './player';
 import type { WallNormal } from './player-queries';
 import { config } from './config.svelte';
@@ -161,6 +162,134 @@ function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
 	}
 	if (state === 'airborne' && jumpChain === 3) return false;
 	return true;
+}
+
+export type LimbTargets = {
+	armL: THREE.Vector3;
+	armR: THREE.Vector3;
+	footL: THREE.Vector3;
+	footR: THREE.Vector3;
+};
+
+/**
+ * Procedural limb positions per state. No rig — just target offsets in the
+ * inner-group's local space, lerped toward each frame. Keeps the character
+ * readable without animation debt.
+ *
+ * Convention: +Z = behind player (tail), -Z = in front (nose). +X = right.
+ */
+export function computeLimbs(
+	state: PlayerState,
+	horizSpeed: number,
+	accumTime: number
+): LimbTargets {
+	// Defaults: arms at sides, feet straight below. All pose branches override.
+	const shoulder = 0.15; // Y offset for arms in stand pose
+	const footY = -HALF_BODY + 0.04;
+	const armL = new THREE.Vector3(-RADIUS - 0.08, shoulder, 0);
+	const armR = new THREE.Vector3(RADIUS + 0.08, shoulder, 0);
+	const footL = new THREE.Vector3(-0.15, footY, 0);
+	const footR = new THREE.Vector3(0.15, footY, 0);
+
+	// Running swing for ground states. Phase from accumulated time (simple sine).
+	// Faster horizontal speed → wider swing + higher frequency.
+	const isGroundish = state === 'grounded' || state === 'skid';
+	if (isGroundish && horizSpeed > 1) {
+		const intensity = Math.min(1, horizSpeed / 6);
+		const freq = 6 + intensity * 3;
+		const phase = Math.sin(accumTime * freq);
+		const swing = 0.25 * intensity;
+		armL.z = phase * swing;
+		armR.z = -phase * swing;
+		// Feet swing in anti-phase to arms (natural gait)
+		footL.z = -phase * swing * 0.7;
+		footR.z = phase * swing * 0.7;
+		footL.y = footY + Math.max(0, -phase) * 0.1 * intensity;
+		footR.y = footY + Math.max(0, phase) * 0.1 * intensity;
+	}
+
+	switch (state) {
+		case 'long_jump':
+		case 'dive': {
+			// Superman: arms forward, legs back
+			armL.set(-0.3, 0.25, -0.5);
+			armR.set(0.3, 0.25, -0.5);
+			footL.set(-0.15, -0.2, 0.3);
+			footR.set(0.15, -0.2, 0.3);
+			break;
+		}
+		case 'backflip': {
+			// Arms tucked, legs tucked — compact rotation
+			armL.set(-0.25, 0.15, -0.25);
+			armR.set(0.25, 0.15, -0.25);
+			footL.set(-0.15, -0.35, -0.2);
+			footR.set(0.15, -0.35, -0.2);
+			break;
+		}
+		case 'side_flip': {
+			// Windmill: arms out wide
+			armL.set(-0.55, 0.4, 0);
+			armR.set(0.55, 0.4, 0);
+			break;
+		}
+		case 'ground_pound': {
+			// Arms crossed over chest, legs straight down driving into ground
+			armL.set(0.1, 0.15, -0.15);
+			armR.set(-0.1, 0.15, -0.15);
+			footL.set(-0.1, footY - 0.05, 0);
+			footR.set(0.1, footY - 0.05, 0);
+			break;
+		}
+		case 'wall_slide': {
+			// Arms splayed against wall (nose faces wall so -Z = wall direction)
+			armL.set(-0.38, 0.45, -0.3);
+			armR.set(0.38, 0.45, -0.3);
+			footL.set(-0.18, footY, -0.1);
+			footR.set(0.18, footY, -0.1);
+			break;
+		}
+		case 'ledge_hang': {
+			// Arms straight up grabbing ledge; legs hang
+			armL.set(-0.28, 0.7, -0.25);
+			armR.set(0.28, 0.7, -0.25);
+			footL.set(-0.18, footY + 0.05, 0.15);
+			footR.set(0.18, footY + 0.05, 0.15);
+			break;
+		}
+		case 'crouch_slide': {
+			// Flat on belly — arms forward, feet back. Scale.y is 0.55 so
+			// actual world placement is already low.
+			armL.set(-0.3, -0.1, -0.4);
+			armR.set(0.3, -0.1, -0.4);
+			footL.set(-0.15, -0.1, 0.35);
+			footR.set(0.15, -0.1, 0.35);
+			break;
+		}
+		case 'slope_slide': {
+			// Sitting on slope — arms back for balance
+			armL.set(-0.45, 0.1, 0.3);
+			armR.set(0.45, 0.1, 0.3);
+			footL.set(-0.15, footY, -0.15);
+			footR.set(0.15, footY, -0.15);
+			break;
+		}
+		case 'skid': {
+			// Feet forward-braking, arms out to sides for balance
+			armL.set(-0.55, 0.2, 0);
+			armR.set(0.55, 0.2, 0);
+			footL.set(-0.18, footY, -0.2);
+			footR.set(0.18, footY, -0.2);
+			break;
+		}
+		case 'airborne': {
+			// Simple jump pose: arms slightly up
+			armL.set(-0.35, 0.3, -0.1);
+			armR.set(0.35, 0.3, -0.1);
+			break;
+		}
+	}
+
+	return { armL, armR, footL, footR };
 }
 
 function lerpAngle(current: number, target: number, step: number): number {
