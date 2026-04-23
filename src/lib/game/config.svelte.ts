@@ -55,13 +55,15 @@ export const config = $state({
 	wallStickMs: 167, // M64: 5 frames
 
 	// Aerial actions.
-	// Ground pound: short tuck/wind-up, then hard vertical slam at -50 u/f = -15 m/s.
-	// The startup isn't authentic frame-by-frame decomp logic, but it sells the same
-	// readable "commit, then stomp" feel with a simple procedural avatar.
+	// Ground pound (M64 decomp act_ground_pound):
+	//   Spin phase = 11 frames at 30fps ≈ 367ms. XZ frozen. Gravity OFF during
+	//   spin. Mario rises ~1.1m via position offsets (we use decaying vy for the
+	//   same net curve). Then slam: vy = -50 u/f = -15 m/s, normal gravity takes
+	//   over (terminal -75 u/f = -22.5 m/s). No bounce on landing.
 	// Dive: M64 Y inherits (no set), XZ = fVel+15 cap 48 u/f = 14.4 m/s.
-	groundPoundStartMs: 100,
-	groundPoundStartVelY: 2.2,
-	groundPoundStartGravityMult: 0.12,
+	groundPoundStartMs: 367,
+	groundPoundStartVelY: 6,
+	groundPoundStartGravityMult: 0,
 	groundPoundVel: -15,
 	groundPoundBounce: 0,
 	groundPoundImpactSquashMs: 220,

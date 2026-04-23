@@ -485,20 +485,17 @@ export class Player {
 		if (this.state === "ground_pound_start") {
 			const startupSec = Math.max(0.001, config.groundPoundStartMs / 1000);
 			this.groundPoundStartT += dt;
-			this.velocity.x = approach(this.velocity.x, 0, 28 * dt);
-			this.velocity.z = approach(this.velocity.z, 0, 28 * dt);
-			// SM64-like readability: first pop/tuck, then hover for a beat before
-			// committing to the slam. This makes the stomp legible instead of
-			// "press crouch -> instantly dive".
-			const startupFrac = Math.min(1, this.groundPoundStartT / startupSec);
-			const hangVel = startupFrac < 0.4 ? config.groundPoundStartVelY : 0.35;
-			const hangApproach = startupFrac < 0.4 ? 120 * dt : 45 * dt;
-			this.velocity.y = approach(this.velocity.y, hangVel, hangApproach);
+			// M64 freezes Mario in XZ completely during the spin — no decel curve,
+			// just locked. Vertical gets a decaying upward pop (M64 adds direct
+			// position offsets per frame totaling ~1.1m; we mimic via vy linearly
+			// decaying from startVelY to 0 so integration gives the same curve).
+			this.velocity.x = 0;
+			this.velocity.z = 0;
+			const frac = Math.min(1, this.groundPoundStartT / startupSec);
+			this.velocity.y = config.groundPoundStartVelY * (1 - frac);
 			if (this.groundPoundStartT >= startupSec) {
 				this.state = "ground_pound";
 				this.groundPoundStartT = 0;
-				this.velocity.x *= 0.05;
-				this.velocity.z *= 0.05;
 				this.velocity.y = config.groundPoundVel;
 			}
 		}

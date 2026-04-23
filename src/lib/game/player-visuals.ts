@@ -81,8 +81,11 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle -= 12 * dt;
 		renderPitch = pitchAngle;
 	} else if (state === "ground_pound_start") {
-		// Quick tuck/somersault before the actual stomp commits downward.
-		pitchAngle -= 22 * dt;
+		// M64: one full forward somersault over the startup window, then the
+		// code below lerps back to upright for the slam. Rate is 2π / startupSec
+		// so the rotation completes regardless of tuning.
+		const startupSec = Math.max(0.001, config.groundPoundStartMs / 1000);
+		pitchAngle -= ((Math.PI * 2) / startupSec) * dt;
 		renderPitch = pitchAngle;
 		targetScaleY = 0.72;
 	} else if (state === "ground_pound") {

@@ -109,9 +109,9 @@
 		config.wallKickVelY = 18.6;
 		config.wallKickVelXZ = 7.2;
 		config.wallStickMs = 167;
-		config.groundPoundStartMs = 100;
-		config.groundPoundStartVelY = 2.2;
-		config.groundPoundStartGravityMult = 0.12;
+		config.groundPoundStartMs = 367;
+		config.groundPoundStartVelY = 6;
+		config.groundPoundStartGravityMult = 0;
 		config.groundPoundVel = -15;
 		config.groundPoundBounce = 0;
 		config.groundPoundImpactSquashMs = 220;
