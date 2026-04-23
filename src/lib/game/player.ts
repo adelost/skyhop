@@ -79,9 +79,13 @@ export class Player {
 	private climbStart = new THREE.Vector3();
 	private climbEnd = new THREE.Vector3();
 	private shimmyDir = 0; // -1, 0, or +1
+	private climbIntentT = 0;
 
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	private ledgeGrabCooldown = 0;
+
+	// One-shot event flag consumed by engine (camera shake on pound landing).
+	private poundImpactPending = false;
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -164,6 +168,7 @@ export class Player {
 		this.ledgeGrabCooldown = 0;
 		this.climbT = -1;
 		this.shimmyDir = 0;
+		this.climbIntentT = 0;
 		this.skidT = 999;
 		this.pitchAngle = 0;
 		this.yawSpin = 0;
@@ -385,6 +390,7 @@ export class Player {
 				const fellFast = this.velocity.y < -15;
 				if (this.state === 'ground_pound') {
 					this.velocity.y = config.groundPoundBounce;
+					this.poundImpactPending = true;
 					haptic(60);
 				} else if (this.velocity.y < 0) {
 					this.velocity.y = 0;
@@ -480,6 +486,7 @@ export class Player {
 
 	private handleLedgeHang(input: InputState, physics: Physics, dt: number): void {
 		if (!this.ledgePos) {
+			this.climbIntentT = 0;
 			this.state = 'airborne';
 			return;
 		}
@@ -495,12 +502,13 @@ export class Player {
 			const z = this.climbStart.z + (this.climbEnd.z - this.climbStart.z) * eased;
 			this.body.setTranslation({ x, y, z }, true);
 			this.mesh.position.set(x, y, z);
-			if (t >= 1) {
-				this.state = 'grounded';
-				this.ledgePos = null;
-				this.climbT = -1;
-				this.ledgeGrabCooldown = 0.3;
-			}
+				if (t >= 1) {
+					this.state = 'grounded';
+					this.ledgePos = null;
+					this.climbT = -1;
+					this.climbIntentT = 0;
+					this.ledgeGrabCooldown = 0.3;
+				}
 			this.updateVisuals(dt);
 			return;
 		}
@@ -510,35 +518,45 @@ export class Player {
 		const sy = Math.sin(input.cameraYaw);
 		const mx = input.moveX * cy + input.moveZ * sy;
 		const mz = -input.moveX * sy + input.moveZ * cy;
+		const intoWall = this.wallNormal
+			? new THREE.Vector3(-this.wallNormal.x, 0, -this.wallNormal.z).normalize()
+			: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
+			const tangent = this.wallNormal
+				? new THREE.Vector3(-this.wallNormal.z, 0, this.wallNormal.x).normalize()
+				: new THREE.Vector3(Math.cos(this.facingYaw), 0, -Math.sin(this.facingYaw));
+			const alongInput = mx * tangent.x + mz * tangent.z;
+			const intoWallInput = mx * intoWall.x + mz * intoWall.z;
+			const wantsShimmy = Math.abs(alongInput) > config.ledgeShimmyDeadzone;
+			const wantsClimb = intoWallInput > config.ledgeClimbInputDeadzone && !wantsShimmy;
+			const wantsDrop = intoWallInput < -config.ledgeClimbInputDeadzone;
 
 		// Shimmy along ledge tangent
 		this.shimmyDir = 0;
-		if (this.wallNormal && Math.abs(mx) > 0.3) {
-			const tx = -this.wallNormal.z;
-			const tz = this.wallNormal.x;
-			const proj = mx * tx + mz * tz;
-			const dir = proj !== 0 ? Math.sign(proj) : Math.sign(mx);
+		if (wantsShimmy) {
+			const dir = Math.sign(alongInput);
 			this.shimmyDir = dir;
 			const step = config.ledgeShimmySpeed * dir * dt;
 			const candidate = {
-				x: this.ledgePos.x + tx * step,
+				x: this.ledgePos.x + tangent.x * step,
 				y: this.ledgePos.y,
-				z: this.ledgePos.z + tz * step
+				z: this.ledgePos.z + tangent.z * step
 			};
 			if (verifyLedgeAt(physics, this.collider, this.wallNormal, candidate)) {
 				this.ledgePos = candidate;
 			}
 		}
 
+		if (wantsClimb) {
+			this.climbIntentT += dt;
+		} else {
+			this.climbIntentT = 0;
+		}
+
 		// Target facing: wall-direction if still, tangent-direction if shimmying.
-		if (this.wallNormal) {
-			if (this.shimmyDir !== 0) {
-				const tx = -this.wallNormal.z;
-				const tz = this.wallNormal.x;
-				this.targetYaw = Math.atan2(-tx * this.shimmyDir, -tz * this.shimmyDir);
-			} else {
-				this.targetYaw = Math.atan2(this.wallNormal.x, this.wallNormal.z);
-			}
+		if (this.shimmyDir !== 0) {
+			this.targetYaw = Math.atan2(-tangent.x * this.shimmyDir, -tangent.z * this.shimmyDir);
+		} else {
+			this.targetYaw = Math.atan2(-intoWall.x, -intoWall.z);
 		}
 
 		// Pin to ledge position
@@ -546,11 +564,9 @@ export class Player {
 		this.velocity.set(0, 0, 0);
 		this.mesh.position.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
 
-		if (mz < -0.6) {
+		const climbCommitSec = config.ledgeClimbCommitMs / 1000;
+		if (this.climbIntentT >= climbCommitSec) {
 			// Start climb animation — lerp from hang pos to standing on top over duration.
-			const intoWall = this.wallNormal
-				? new THREE.Vector3(-this.wallNormal.x, 0, -this.wallNormal.z).normalize()
-				: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
 			this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
 			this.climbEnd.set(
 				this.ledgePos.x + intoWall.x * 0.7,
@@ -558,18 +574,21 @@ export class Player {
 				this.ledgePos.z + intoWall.z * 0.7
 			);
 			this.climbT = 0;
+			this.climbIntentT = 0;
 			haptic(20);
 		} else if (input.jumpPressed) {
 			this.velocity.y = config.jumpVel;
 			this.state = 'airborne';
 			this.ledgePos = null;
 			this.ledgeGrabCooldown = 0.3;
+			this.climbIntentT = 0;
 			this.jumpChain = 1;
 			haptic(15);
-		} else if (input.crouchPressed || mz > 0.6) {
+		} else if (input.crouchPressed || wantsDrop) {
 			this.state = 'airborne';
 			this.ledgePos = null;
 			this.ledgeGrabCooldown = 0.3;
+			this.climbIntentT = 0;
 		}
 		this.updateVisuals(dt);
 	}
@@ -714,6 +733,34 @@ export class Player {
 
 	get isMoving(): boolean {
 		return Math.hypot(this.velocity.x, this.velocity.z) > 2;
+	}
+
+	/** Read-only velocity for external systems (camera look-ahead). */
+	get velocityVec(): THREE.Vector3 {
+		return this.velocity;
+	}
+
+	/** Is player currently in airborne state (for Y-stabilization in cam)? */
+	get airborne(): boolean {
+		return !this.grounded;
+	}
+
+	get inLedgeHang(): boolean {
+		return this.state === 'ledge_hang';
+	}
+
+	/** Consume the pound-landing event (true once per impact). */
+	consumePoundImpact(): boolean {
+		if (this.poundImpactPending) {
+			this.poundImpactPending = false;
+			return true;
+		}
+		return false;
+	}
+
+	/** Hide/show the visual mesh (for first-person toggle). Physics unaffected. */
+	setVisible(v: boolean): void {
+		this.visualGroup.visible = v;
 	}
 
 	private shouldTrackFacingFromVelocity(horizSpeed: number): boolean {

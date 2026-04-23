@@ -11,7 +11,6 @@
 	let jumpZone: HTMLDivElement;
 	let crouchZone: HTMLDivElement;
 	let actionZone: HTMLDivElement;
-	let camZone: HTMLDivElement;
 	let game: Game | null = $state(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -35,10 +34,11 @@
 				g.start();
 				loading = false;
 
-				// Camera drag zone (both mouse + touch via pointer events)
-				bindCameraDrag(camZone, g);
+				// Camera drag on full canvas. Touch-buttons sit on top with higher z.
+				bindCameraDrag(canvas, g);
+				bindWheelZoom(canvas, g);
+				bindPointerLock(canvas, g);
 
-				// Combo-ready polling for JUMP glow
 				const pollTick = () => {
 					if (!game) return;
 					const d = game.getDebugInfo();
@@ -76,6 +76,7 @@
 						game?.inputRef.releaseTouchCrouch()
 					);
 					bindTap(actionZone, () => game?.inputRef.pressTouchAction());
+					bindPinchZoom(canvas, g);
 				}
 			} catch (e) {
 				error = e instanceof Error ? e.message : String(e);
@@ -87,8 +88,7 @@
 			if (e.code === 'KeyT') panelOpen = !panelOpen;
 			if (e.code === 'KeyR') game?.respawn();
 			if (e.code === 'KeyC') game?.recenterCam();
-			if (e.code === 'KeyQ') game?.addYaw(-0.1);
-			if (e.code === 'KeyX') game?.addYaw(0.1);
+			if (e.code === 'KeyV') game?.toggleFirstPerson();
 		};
 		window.addEventListener('keydown', onKey);
 
@@ -130,20 +130,42 @@
 	function bindCameraDrag(el: HTMLElement, g: Game) {
 		let dragging = false;
 		let lastX = 0;
+		let lastY = 0;
+		let accumX = 0;
+		let accumY = 0;
 		let activeId: number | null = null;
 
 		const onDown = (e: PointerEvent) => {
-			if (e.target !== el) return; // don't steal from buttons
+			// Ignore if a touch-button was tapped (they stopPropagation).
+			// For mouse: left button only for drag. Right click opens pointer-lock via contextmenu.
+			if (e.pointerType === 'mouse' && e.button !== 0) return;
 			dragging = true;
 			activeId = e.pointerId;
 			lastX = e.clientX;
-			el.setPointerCapture(e.pointerId);
+			lastY = e.clientY;
+			accumX = 0;
+			accumY = 0;
+			try {
+				el.setPointerCapture(e.pointerId);
+			} catch {}
 		};
 		const onMove = (e: PointerEvent) => {
 			if (!dragging || e.pointerId !== activeId) return;
 			const dx = e.clientX - lastX;
+			const dy = e.clientY - lastY;
 			lastX = e.clientX;
-			g.addYaw(dx * config.camYawSensitivity);
+			lastY = e.clientY;
+			accumX += dx;
+			accumY += dy;
+			// Apply dead-zone per axis
+			if (Math.abs(accumX) > config.camDragDeadPx) {
+				g.addYaw(accumX * config.camYawSensitivity);
+				accumX = 0;
+			}
+			if (Math.abs(accumY) > config.camDragDeadPx) {
+				g.addPitch(-accumY * config.camPitchSensitivity);
+				accumY = 0;
+			}
 		};
 		const onUp = (e: PointerEvent) => {
 			if (e.pointerId !== activeId) return;
@@ -157,6 +179,59 @@
 		el.addEventListener('pointermove', onMove);
 		el.addEventListener('pointerup', onUp);
 		el.addEventListener('pointercancel', onUp);
+	}
+
+	function bindWheelZoom(el: HTMLElement, g: Game) {
+		el.addEventListener(
+			'wheel',
+			(e: WheelEvent) => {
+				e.preventDefault();
+				const sign = Math.sign(e.deltaY);
+				g.addZoom(sign * config.camZoomScrollSpeed);
+			},
+			{ passive: false }
+		);
+	}
+
+	function bindPointerLock(el: HTMLElement, g: Game) {
+		el.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			if (document.pointerLockElement === el) {
+				document.exitPointerLock();
+			} else {
+				el.requestPointerLock?.();
+			}
+		});
+		document.addEventListener('mousemove', (e: MouseEvent) => {
+			if (document.pointerLockElement !== el) return;
+			g.addYaw(e.movementX * config.camYawSensitivity);
+			g.addPitch(-e.movementY * config.camPitchSensitivity);
+		});
+	}
+
+	function bindPinchZoom(el: HTMLElement, g: Game) {
+		let lastDist = -1;
+		el.addEventListener(
+			'touchmove',
+			(e: TouchEvent) => {
+				if (e.touches.length !== 2) {
+					lastDist = -1;
+					return;
+				}
+				const a = e.touches[0];
+				const b = e.touches[1];
+				const d = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+				if (lastDist > 0) {
+					const delta = lastDist - d; // pinch close = delta > 0 = zoom in (reduce dist)
+					g.addZoom(delta * config.camZoomPinchSensitivity);
+				}
+				lastDist = d;
+			},
+			{ passive: true }
+		);
+		el.addEventListener('touchend', () => {
+			lastDist = -1;
+		});
 	}
 </script>
 
@@ -172,7 +247,7 @@
 <div class="hud">
 	<div class="title">skyhop</div>
 	<div class="hint">
-		WASD · space · shift long/back · shift+run=slide · E dive/pound · up=ledge-pull · Q/X/C cam · T · R
+		WASD · space · shift long/back · E dive/pound · drag cam · wheel zoom · right-click lock · V 1st-person · C recenter · T · R
 	</div>
 </div>
 
@@ -181,7 +256,6 @@
 	<TuningPanel bind:open={panelOpen} />
 {/if}
 
-<div class="cam-zone" bind:this={camZone}></div>
 <div class="touch-zone joystick" bind:this={joystickZone}></div>
 <div
 	class="touch-btn jump"
@@ -202,6 +276,7 @@
 		width: 100vw;
 		height: 100vh;
 		display: block;
+		touch-action: none;
 	}
 	.overlay {
 		position: fixed;
@@ -233,15 +308,6 @@
 		font-size: 10px;
 		opacity: 0.7;
 		margin-top: 2px;
-	}
-	.cam-zone {
-		position: fixed;
-		top: 0;
-		right: 0;
-		width: 55vw;
-		height: 100vh;
-		touch-action: none;
-		z-index: 1;
 	}
 	.touch-zone {
 		position: fixed;

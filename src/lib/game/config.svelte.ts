@@ -64,10 +64,48 @@ export const config = $state({
 	// Camera. M64 Lakitu: base distance 10 m, look-at target at Mario + 1.25 m.
 	// Camera elevation ~2.5 m with slight pitch down.
 	camYawSensitivity: 0.006,
+	camPitchSensitivity: 0.004,
 	camDistance: 10,
 	camHeight: 2.5,
-	camRecenterDelayMs: 1500,
+	camRecenterDelayMs: 3000, // bumped from 1500 — let user keep their angle longer
 	camRecenterSpeed: 0.8, // rad/s
+	camRecenterMinSpeed: 2, // only recenter if player moves faster than this
+	camRecenterMinYawDiff: 0.8, // rad — only recenter if cam is this far off
+
+	// Look-ahead: target point offset in velocity direction (spelaren ser vart de åker)
+	camLookAheadDist: 2.5,
+	camLookAheadSpeedRef: 8, // m/s speed at which look-ahead reaches full
+
+	// Y-stabilization: don't snap cam during brief hops
+	camYStabilizeMs: 300,
+
+	// Speed-adaptive FOV + distance (subtle cinematic polish)
+	camFovBase: 60,
+	camFovSpeedBoost: 6, // deg added at max speed
+	camDistSpeedBoost: 1.5, // m added at max speed
+
+	// Cam smoothing ("operator lag"). Lower = laggier / more physical.
+	camLerpRate: 6,
+
+	// Dead zone on drag: ignore micro-movements (prevents jitter)
+	camDragDeadPx: 3,
+
+	// Pitch clamp (radians)
+	camPitchMin: -0.35, // look down
+	camPitchMax: 0.9, // look up
+
+	// Zoom
+	camZoomMin: 4,
+	camZoomMax: 18,
+	camZoomScrollSpeed: 1.5, // m per scroll tick
+	camZoomPinchSensitivity: 0.02, // m per pixel of pinch delta
+
+	// Ground-pound shake
+	camShakeAmp: 0.15,
+	camShakeDuration: 0.25,
+
+	// Ledge-hang framing: raise look-at so player ser ovanpå väggen
+	camLedgeFramingUp: 1.5,
 
 	// Character facing rotation (visual). Lerp rad/s and skid-turn duration.
 	rotationSpeed: 12,
@@ -84,12 +122,15 @@ export const config = $state({
 	wallSlideGravityMult: 0.35,
 
 	// Ledge grab reach (how far forward + up to scan).
-	ledgeForwardReach: 1.0,
-	ledgeUpReach: 1.0,
-	ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
-	ledgeShimmySpeed: 2.0, // m/s along the ledge
-	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
-	ledgeClimbDurationMs: 420, // smooth pull-up animation length
+		ledgeForwardReach: 1.0,
+		ledgeUpReach: 1.0,
+		ledgeMinFallSpeed: 1, // require velocity.y < -this to allow grab
+		ledgeShimmySpeed: 2.0, // m/s along the ledge
+		ledgeShimmyDeadzone: 0.3,
+		ledgeClimbInputDeadzone: 0.6,
+		ledgeClimbCommitMs: 120, // require a short deliberate hold before pull-up
+		ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
+		ledgeClimbDurationMs: 420, // smooth pull-up animation length
 
 	// Wall-slide pose. Legs-into-wall, head-away: POSITIVE pitch (with nose facing
 	// into wall, positive pitch tips head backward = away from wall).

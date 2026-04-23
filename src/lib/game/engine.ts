@@ -25,9 +25,23 @@ export class Game {
 	private fpsSamples: number[] = [];
 	private lastFps = 60;
 
+	// Camera state
 	private cameraTarget = new THREE.Vector3();
 	private cameraYaw = 0;
+	private cameraPitch = 0;
+	private cameraDist = config.camDistance;
+	private cameraFov = config.camFovBase;
 	private timeSinceCamInput = 999;
+
+	// Y-stabilization during short hops
+	private stableTargetY = 0;
+	private airborneT = 999; // time since last grounded
+
+	// Ground-pound shake
+	private shakeT = 0;
+
+	// First-person mode
+	private firstPerson = false;
 
 	constructor(canvas: HTMLCanvasElement) {
 		const isMobile = matchMedia('(pointer: coarse)').matches;
@@ -43,7 +57,7 @@ export class Game {
 		this.scene.background = new THREE.Color(0x6fb8e0);
 		this.scene.fog = new THREE.Fog(0x6fb8e0, 35, 100);
 
-		this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+		this.camera = new THREE.PerspectiveCamera(config.camFovBase, 1, 0.1, 200);
 
 		const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x3a5530, 0.7);
 		this.scene.add(hemi);
@@ -57,6 +71,7 @@ export class Game {
 		const result = buildWorld(this.scene, this.physics);
 		this.movingPlatforms = result.moving;
 		this.player = new Player(this.scene, this.physics, new THREE.Vector3(0, 2, 0));
+		this.stableTargetY = this.player.position.y;
 		this.input.attach();
 		this.onResize();
 		window.addEventListener('resize', this.onResize);
@@ -89,6 +104,7 @@ export class Game {
 
 	respawn(): void {
 		this.player?.respawn();
+		if (this.player) this.stableTargetY = this.player.position.y;
 	}
 
 	addYaw(delta: number): void {
@@ -98,19 +114,46 @@ export class Game {
 		this.timeSinceCamInput = 0;
 	}
 
-	recenterCam(): void {
-		// Snap behind player's facing direction
-		if (this.player) this.cameraYaw = this.player.facing;
-		else this.cameraYaw = 0;
-		this.timeSinceCamInput = 999; // allow auto-tracking immediately after
+	addPitch(delta: number): void {
+		this.cameraPitch = Math.max(
+			config.camPitchMin,
+			Math.min(config.camPitchMax, this.cameraPitch + delta)
+		);
+		this.timeSinceCamInput = 0;
 	}
 
-	getDebugInfo(): DebugInfo & { fps: number; comboReady: boolean; wallKickReady: boolean } {
+	addZoom(delta: number): void {
+		this.cameraDist = Math.max(
+			config.camZoomMin,
+			Math.min(config.camZoomMax, this.cameraDist + delta)
+		);
+	}
+
+	recenterCam(): void {
+		if (this.player) this.cameraYaw = this.player.facing;
+		else this.cameraYaw = 0;
+		this.cameraPitch = 0;
+		this.cameraDist = config.camDistance;
+		this.timeSinceCamInput = 999;
+	}
+
+	toggleFirstPerson(): void {
+		this.firstPerson = !this.firstPerson;
+		this.player?.setVisible(!this.firstPerson);
+	}
+
+	getDebugInfo(): DebugInfo & {
+		fps: number;
+		comboReady: boolean;
+		wallKickReady: boolean;
+		firstPerson: boolean;
+	} {
 		return {
 			...this.player.debug,
 			fps: this.lastFps,
 			comboReady: this.player.comboReady,
-			wallKickReady: this.player.wallKickReady
+			wallKickReady: this.player.wallKickReady,
+			firstPerson: this.firstPerson
 		};
 	}
 
@@ -124,7 +167,6 @@ export class Game {
 		if (dt > 0.25) dt = 0.25;
 		this.accumulator += dt;
 
-		// FPS (rolling 60 samples)
 		this.fpsSamples.push(dt);
 		if (this.fpsSamples.length > 60) this.fpsSamples.shift();
 		const avg = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
@@ -134,7 +176,6 @@ export class Game {
 		while (this.accumulator >= FIXED_DT && steps < MAX_STEPS) {
 			this.simTime += FIXED_DT;
 			updateMovingPlatforms(this.movingPlatforms, this.physics, this.simTime);
-			// Carry player with any platform they're standing on (uses this tick's delta)
 			this.player.carryOnPlatform(this.movingPlatforms, this.physics);
 			this.input.setCameraYaw(this.cameraYaw);
 			const snap = this.input.sample();
@@ -145,36 +186,96 @@ export class Game {
 		}
 
 		this.player.sync();
+		// Detect pound-landing impact → trigger camera shake
+		if (this.player.consumePoundImpact()) {
+			this.shakeT = config.camShakeDuration;
+		}
 		this.updateCamera(dt);
 		this.renderer.render(this.scene, this.camera);
 	};
 
 	private updateCamera(dt: number): void {
-		const pos = this.player.position;
-		this.cameraTarget.lerp(pos, Math.min(1, dt * 6));
+		// Y-stabilize: during short hops, keep look-at Y latched to last grounded Y
+		// so camera doesn't bounce up/down with each little jump.
+		if (this.player.airborne) this.airborneT += dt;
+		else {
+			this.airborneT = 0;
+			this.stableTargetY = this.player.position.y;
+		}
+		const stabilizeSec = config.camYStabilizeMs / 1000;
+		const effectiveY =
+			this.airborneT < stabilizeSec ? this.stableTargetY : this.player.position.y;
 
-		// Auto-recenter behind player after inactivity + movement
+		// Look-ahead: bias target in velocity direction so spelaren ser framåt
+		const v = this.player.velocityVec;
+		const horizSp = Math.hypot(v.x, v.z);
+		const aheadFactor = Math.min(1, horizSp / config.camLookAheadSpeedRef);
+		const aheadX = horizSp > 0.1 ? (v.x / horizSp) * config.camLookAheadDist * aheadFactor : 0;
+		const aheadZ = horizSp > 0.1 ? (v.z / horizSp) * config.camLookAheadDist * aheadFactor : 0;
+
+		// Ledge-hang: lift framing so player sees top of wall
+		const ledgeLift = this.player.inLedgeHang ? config.camLedgeFramingUp : 0;
+
+		const desiredTarget = new THREE.Vector3(
+			this.player.position.x + aheadX,
+			effectiveY + ledgeLift,
+			this.player.position.z + aheadZ
+		);
+		this.cameraTarget.lerp(desiredTarget, Math.min(1, dt * config.camLerpRate));
+
+		// Auto-recenter yaw behind player direction: only if
+		//   (a) player moving fast enough,
+		//   (b) user hasn't touched cam recently,
+		//   (c) cam actually drifted far from ideal.
 		this.timeSinceCamInput += dt;
 		const recenterDelay = config.camRecenterDelayMs / 1000;
-		if (this.timeSinceCamInput > recenterDelay && this.player.isMoving) {
+		const playerMovingFast = horizSp > config.camRecenterMinSpeed;
+		if (this.timeSinceCamInput > recenterDelay && playerMovingFast) {
 			const targetYaw = this.player.facing;
 			const diff = normalizeAngle(targetYaw - this.cameraYaw);
-			const step = config.camRecenterSpeed * dt;
-			if (Math.abs(diff) <= step) this.cameraYaw = targetYaw;
-			else this.cameraYaw += Math.sign(diff) * step;
+			if (Math.abs(diff) > config.camRecenterMinYawDiff) {
+				const step = config.camRecenterSpeed * dt;
+				if (Math.abs(diff) <= step) this.cameraYaw = targetYaw;
+				else this.cameraYaw += Math.sign(diff) * step;
+			}
 		}
 
-		// Orbit offset around player, rotated by cameraYaw
-		const dist = config.camDistance;
-		const offsetX = Math.sin(this.cameraYaw) * dist;
-		const offsetZ = Math.cos(this.cameraYaw) * dist;
-		let camPos = new THREE.Vector3(
+		// Speed-adaptive zoom + FOV (subtle fart-känsla)
+		const speedFrac = Math.min(1, horizSp / config.camLookAheadSpeedRef);
+		const dynDist = this.cameraDist + config.camDistSpeedBoost * speedFrac;
+		const dynFov = config.camFovBase + config.camFovSpeedBoost * speedFrac;
+		this.cameraFov += (dynFov - this.cameraFov) * Math.min(1, dt * 4);
+		this.camera.fov = this.cameraFov;
+		this.camera.updateProjectionMatrix();
+
+		// Position camera
+		let camPos: THREE.Vector3;
+		if (this.firstPerson) {
+			// First-person: cam at player head, look in yaw+pitch direction
+			const headY = this.player.position.y + 0.3;
+			camPos = new THREE.Vector3(this.player.position.x, headY, this.player.position.z);
+			this.camera.position.copy(camPos);
+			const lookDir = new THREE.Vector3(
+				-Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch),
+				Math.sin(this.cameraPitch),
+				-Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch)
+			);
+			this.camera.lookAt(camPos.clone().add(lookDir));
+			return;
+		}
+
+		// Third-person orbit
+		const pitchRadius = Math.cos(this.cameraPitch) * dynDist;
+		const pitchHeight = Math.sin(this.cameraPitch) * dynDist;
+		const offsetX = Math.sin(this.cameraYaw) * pitchRadius;
+		const offsetZ = Math.cos(this.cameraYaw) * pitchRadius;
+		camPos = new THREE.Vector3(
 			this.cameraTarget.x + offsetX,
-			this.cameraTarget.y + config.camHeight,
+			this.cameraTarget.y + config.camHeight - pitchHeight,
 			this.cameraTarget.z + offsetZ
 		);
 
-		// Collision shrink: raycast from target toward camera. Shrink if wall in way.
+		// Collision shrink
 		const dir = camPos.clone().sub(this.cameraTarget);
 		const desiredDist = dir.length();
 		if (desiredDist > 0.1) {
@@ -187,13 +288,20 @@ export class Game {
 			const hit = this.physics.world.castRay(ray, desiredDist, true);
 			if (hit) {
 				const safeDist = Math.max(hit.timeOfImpact - 0.25, 1.5);
-				camPos = this.cameraTarget
-					.clone()
-					.add(dir.multiplyScalar(safeDist));
+				camPos = this.cameraTarget.clone().add(dir.multiplyScalar(safeDist));
 			}
 		}
 
-		this.camera.position.lerp(camPos, Math.min(1, dt * 8));
+		// Ground-pound shake: random offset, decays linearly
+		if (this.shakeT > 0) {
+			this.shakeT -= dt;
+			const mag = (this.shakeT / config.camShakeDuration) * config.camShakeAmp;
+			camPos.x += (Math.random() - 0.5) * mag;
+			camPos.y += (Math.random() - 0.5) * mag;
+			camPos.z += (Math.random() - 0.5) * mag;
+		}
+
+		this.camera.position.lerp(camPos, Math.min(1, dt * config.camLerpRate));
 		this.camera.lookAt(this.cameraTarget);
 	}
 
@@ -219,4 +327,3 @@ function normalizeAngle(a: number): number {
 	while (a < -Math.PI) a += 2 * Math.PI;
 	return a;
 }
-
