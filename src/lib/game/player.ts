@@ -97,6 +97,13 @@ export class Player {
 	private crouching = false;
 	private accumTime = 0; // ticks up each step(); phase source for limb swing
 
+	// Render interpolation. Physics runs at fixed 60Hz but render can run at
+	// 120/144/240Hz. Snapshot body.translation() after each fixed step into
+	// curr (rotating prev←curr first), then sync() lerps mesh using
+	// alpha = accumulator/FIXED_DT from engine. Eliminates run judder.
+	private prevBodyPos = new THREE.Vector3();
+	private currBodyPos = new THREE.Vector3();
+
 	private startPos: THREE.Vector3;
 
 	constructor(scene: THREE.Scene, physics: Physics, spawn: THREE.Vector3) {
@@ -107,6 +114,8 @@ export class Player {
 		this.visualGroup = meshes.inner;
 		this.limbs = meshes.limbs;
 		this.mesh.position.copy(spawn);
+		this.prevBodyPos.copy(spawn);
+		this.currBodyPos.copy(spawn);
 		scene.add(this.mesh);
 
 		const { world, rapier } = physics;
@@ -157,6 +166,9 @@ export class Player {
 	respawn(): void {
 		this.body.setTranslation({ x: this.startPos.x, y: this.startPos.y, z: this.startPos.z }, true);
 		this.velocity.set(0, 0, 0);
+		// Snap interpolation anchors so mesh doesn't lerp across teleport.
+		this.prevBodyPos.copy(this.startPos);
+		this.currBodyPos.copy(this.startPos);
 		// Full transient reset so first frame doesn't inherit ghost coyote/combo/wall-kick.
 		this.grounded = false;
 		this.timeSinceGrounded = 999;
@@ -733,9 +745,23 @@ export class Player {
 		this.timeSinceLanding = 999;
 	}
 
-	sync(): void {
+	/**
+	 * Snapshot body position after a physics step. Engine calls this once per
+	 * fixed step (after physics.world.step()). Rotates prev←curr, curr←body.
+	 */
+	snapshotPhysics(): void {
+		this.prevBodyPos.copy(this.currBodyPos);
 		const t = this.body.translation();
-		this.mesh.position.set(t.x, t.y, t.z);
+		this.currBodyPos.set(t.x, t.y, t.z);
+	}
+
+	/**
+	 * Render-time sync: lerp mesh between prev and curr body snapshot using
+	 * alpha = accumulator / FIXED_DT. Called once per rendered frame.
+	 * Smooth across refresh-rate mismatch (60Hz physics, 120/144/240Hz display).
+	 */
+	sync(alpha: number): void {
+		this.mesh.position.lerpVectors(this.prevBodyPos, this.currBodyPos, alpha);
 	}
 
 	get position(): THREE.Vector3 {

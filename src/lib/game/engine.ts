@@ -198,11 +198,18 @@ export class Game {
 			const snap = this.input.sample();
 			this.player.step(FIXED_DT, snap, this.physics);
 			this.physics.world.step();
+			// Snapshot AFTER physics step so body.translation() reflects the new
+			// position. Next fixed step, curr becomes prev → smooth interpolation.
+			this.player.snapshotPhysics();
 			this.accumulator -= FIXED_DT;
 			steps += 1;
 		}
 
-		this.player.sync();
+		// Classic fixed-timestep interpolation (Glenn Fiedler): alpha ∈ [0,1)
+		// tells us how far we are into the NEXT physics step. Renders mesh
+		// between prev and curr snapshot so cam-following uses smooth pos.
+		const alpha = Math.min(1, this.accumulator / FIXED_DT);
+		this.player.sync(alpha);
 		// Consume one-shot player events → trigger shake + dust emissions
 		if (this.player.consumePoundImpact()) {
 			this.shakeT = config.camShakeDuration;
