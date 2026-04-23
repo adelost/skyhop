@@ -62,30 +62,30 @@ export const config = $state({
 	diveVelY: 0,
 	diveVelXZ: 14.4,
 
-	// Camera. M64 Lakitu: base distance 10 m, look-at target at Mario + 1.25 m.
-	// Camera elevation ~2.5 m with slight pitch down.
+	// Camera. M64-tuned: authentic Lakitu feel. Speed-boost off by default so
+	// the camera doesn't "breathe" when moving; look-ahead is subtle.
 	camYawSensitivity: 0.006,
 	camPitchSensitivity: 0.004,
 	camDistance: 10,
-	camHeight: 2.5,
-	camRecenterDelayMs: 3000, // bumped from 1500 — let user keep their angle longer
-	camRecenterSpeed: 0.8, // rad/s
-	camRecenterMinSpeed: 2, // only recenter if player moves faster than this
-	camRecenterMinYawDiff: 0.8, // rad — only recenter if cam is this far off
+	camHeight: 2.3,
+	camRecenterDelayMs: 1200, // M64 is pretty eager — follow quickly after idle
+	camRecenterSpeed: 1.4, // rad/s
+	camRecenterMinSpeed: 1.2, // only recenter if player moves faster than this
+	camRecenterMinYawDiff: 0.4, // rad — recenter even for modest drift
 
-	// Look-ahead: target point offset in velocity direction (spelaren ser vart de åker)
-	camLookAheadDist: 2.5,
-	camLookAheadSpeedRef: 8, // m/s speed at which look-ahead reaches full
+	// Look-ahead: subtle bias in velocity direction (M64 barely has this)
+	camLookAheadDist: 1.0,
+	camLookAheadSpeedRef: 8, // m/s at which look-ahead reaches full
 
 	// Y-stabilization: don't snap cam during brief hops
-	camYStabilizeMs: 300,
+	camYStabilizeMs: 200,
 
-	// Speed-adaptive FOV + distance. Keep SUBTLE (Odyssey-style, not arcade).
-	// Mario 64 has none — if you want authentic M64, set both boosts to 0.
+	// Speed-adaptive FOV + distance. Off by default for M64 feel. Raise for
+	// Odyssey-ish speed-sense (2 deg FOV + 0.5 m dist feels right as upper bound).
 	camFovBase: 60,
-	camFovSpeedBoost: 2, // deg added at max speed (was 6, felt too aggressive)
-	camDistSpeedBoost: 0.5, // m added at max speed (was 1.5)
-	camSpeedBoostLerp: 2, // rad/s — ease in/out of boost (same rate both directions)
+	camFovSpeedBoost: 0,
+	camDistSpeedBoost: 0,
+	camSpeedBoostLerp: 2,
 
 	// Cam smoothing ("operator lag"). Lower = laggier / more physical.
 	camLerpRate: 6,
@@ -97,11 +97,16 @@ export const config = $state({
 	camPitchMin: -0.35, // look down
 	camPitchMax: 0.9, // look up
 
-	// Zoom
-	camZoomMin: 4,
-	camZoomMax: 18,
-	camZoomScrollSpeed: 1.5, // m per scroll tick
-	camZoomPinchSensitivity: 0.02, // m per pixel of pinch delta
+	// Zoom. camZoomMin matters — too low lets occlusion collapse cam into the
+	// player's face ("huge capsule fills screen" bug). 8m is a reasonable floor.
+	camZoomMin: 8,
+	camZoomMax: 14,
+	camZoomScrollSpeed: 1.5,
+	camZoomPinchSensitivity: 0.02,
+
+	// Collision shrink floor: min allowed distance when a wall is between cam
+	// and target. Must match or slightly undercut camZoomMin so the two play well.
+	camCollisionMinDist: 5,
 
 	// Ground-pound shake
 	camShakeAmp: 0.15,

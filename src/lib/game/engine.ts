@@ -317,7 +317,9 @@ export class Game {
 			);
 			const hit = this.physics.world.castRay(ray, desiredDist, true);
 			if (hit) {
-				const safeDist = Math.max(hit.timeOfImpact - 0.25, 1.5);
+				// Floor at camCollisionMinDist so cam never collapses into player ("huge
+				// capsule fills screen"). Keep margin 0.25 m off the hit geometry.
+				const safeDist = Math.max(hit.timeOfImpact - 0.25, config.camCollisionMinDist);
 				camPos = this.cameraTarget.clone().add(dir.multiplyScalar(safeDist));
 			}
 		}

@@ -79,6 +79,9 @@ export class Player {
 	private climbIntentT = 0;
 
 	private ledgePos: { x: number; y: number; z: number } | null = null;
+	// Actual wall normal at chest hit — captured during grab, used for shimmy.
+	// Distinct from wallNormal (which comes from the coarse 4-cardinal query).
+	private ledgeNormal: WallNormal | null = null;
 	private ledgeGrabCooldown = 0;
 
 	// One-shot event flags consumed by engine for effects (shake, dust).
@@ -166,6 +169,7 @@ export class Player {
 		this.lastWallKickNormal = null;
 		this.timeSinceWallKick = 999;
 		this.ledgePos = null;
+		this.ledgeNormal = null;
 		this.ledgeGrabCooldown = 0;
 		this.climbT = -1;
 		this.shimmyDir = 0;
@@ -469,13 +473,14 @@ export class Player {
 				velocity: this.velocity
 			});
 			if (ledge) {
-				this.ledgePos = ledge;
-				this.body.setTranslation(ledge, true);
+				this.ledgePos = ledge.pos;
+				this.ledgeNormal = ledge.normal;
+				this.body.setTranslation(ledge.pos, true);
 				this.velocity.set(0, 0, 0);
 				this.state = 'ledge_hang';
 				this.jumpChain = 0;
 				haptic(30);
-				this.mesh.position.set(ledge.x, ledge.y, ledge.z);
+				this.mesh.position.set(ledge.pos.x, ledge.pos.y, ledge.pos.z);
 				return;
 			}
 		}
@@ -519,6 +524,7 @@ export class Player {
 			if (t >= 1) {
 				this.state = 'grounded';
 				this.ledgePos = null;
+				this.ledgeNormal = null;
 				this.climbT = -1;
 				this.climbIntentT = 0;
 				this.ledgeGrabCooldown = 0.3;
@@ -532,11 +538,15 @@ export class Player {
 		const sy = Math.sin(input.cameraYaw);
 		const mx = input.moveX * cy + input.moveZ * sy;
 		const mz = -input.moveX * sy + input.moveZ * cy;
-		const intoWall = this.wallNormal
-			? new THREE.Vector3(-this.wallNormal.x, 0, -this.wallNormal.z).normalize()
+		// Use ledgeNormal (captured at grab from actual chestHit.normal) — this is
+		// more accurate than wallNormal (which comes from coarse 4-cardinal query
+		// and often misses non-axis-aligned platform-edge surfaces).
+		const ln = this.ledgeNormal ?? this.wallNormal;
+		const intoWall = ln
+			? new THREE.Vector3(-ln.x, 0, -ln.z).normalize()
 			: new THREE.Vector3(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
-		const tangent = this.wallNormal
-			? new THREE.Vector3(-this.wallNormal.z, 0, this.wallNormal.x).normalize()
+		const tangent = ln
+			? new THREE.Vector3(-ln.z, 0, ln.x).normalize()
 			: new THREE.Vector3(Math.cos(this.facingYaw), 0, -Math.sin(this.facingYaw));
 		const alongInput = mx * tangent.x + mz * tangent.z;
 		const intoWallInput = mx * intoWall.x + mz * intoWall.z;
@@ -555,7 +565,7 @@ export class Player {
 				y: this.ledgePos.y,
 				z: this.ledgePos.z + tangent.z * step
 			};
-			if (verifyLedgeAt(physics, this.collider, this.wallNormal, candidate)) {
+			if (verifyLedgeAt(physics, this.collider, ln, candidate)) {
 				this.ledgePos = candidate;
 			}
 		}
@@ -602,6 +612,7 @@ export class Player {
 			this.velocity.y = config.jumpVel;
 			this.state = 'airborne';
 			this.ledgePos = null;
+			this.ledgeNormal = null;
 			this.ledgeGrabCooldown = 0.3;
 			this.climbIntentT = 0;
 			this.jumpChain = 1;
@@ -609,6 +620,7 @@ export class Player {
 		} else if (input.crouchPressed || wantsDrop) {
 			this.state = 'airborne';
 			this.ledgePos = null;
+			this.ledgeNormal = null;
 			this.ledgeGrabCooldown = 0.3;
 			this.climbIntentT = 0;
 		}

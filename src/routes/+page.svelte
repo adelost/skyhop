@@ -70,6 +70,7 @@
 						game.inputRef.setTouchMove(x, z);
 					});
 					joy.on('end', () => game?.inputRef.setTouchMove(0, 0));
+					cleanups.push(() => joy.destroy());
 
 					bindHold(jumpZone, () => game?.inputRef.pressTouchJump(), () =>
 						game?.inputRef.releaseTouchJump()

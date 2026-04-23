@@ -64,6 +64,14 @@
 		{ key: 'camLedgeFramingUp', min: 0, max: 3, step: 0.1 },
 		{ key: 'camRecenterMinSpeed', min: 0, max: 6, step: 0.2 },
 		{ key: 'camRecenterMinYawDiff', min: 0, max: 2, step: 0.1 },
+		{ key: 'camZoomMin', min: 2, max: 14, step: 0.5 },
+		{ key: 'camZoomMax', min: 8, max: 24, step: 0.5 },
+		{ key: 'camZoomScrollSpeed', min: 0.1, max: 5, step: 0.1 },
+		{ key: 'camZoomPinchSensitivity', min: 0.005, max: 0.1, step: 0.005 },
+		{ key: 'camCollisionMinDist', min: 1, max: 10, step: 0.25 },
+		{ key: 'ledgeForwardReach', min: 0.3, max: 2, step: 0.05 },
+		{ key: 'ledgeUpReach', min: 0.3, max: 2, step: 0.05 },
+		{ key: 'ledgeMinFallSpeed', min: 0, max: 5, step: 0.25 },
 		{ key: 'poseLerpRate', min: 1, max: 30, step: 0.5 },
 		{ key: 'runJumpBonus', min: 0, max: 1, step: 0.05 },
 		{ key: 'runDoubleJumpBonus', min: 0, max: 1, step: 0.05 },
@@ -105,26 +113,27 @@
 		config.camYawSensitivity = 0.006;
 		config.camPitchSensitivity = 0.004;
 		config.camDistance = 10;
-		config.camHeight = 2.5;
-		config.camRecenterDelayMs = 3000;
-		config.camRecenterSpeed = 0.8;
-		config.camRecenterMinSpeed = 2;
-		config.camRecenterMinYawDiff = 0.8;
-		config.camLookAheadDist = 2.5;
+		config.camHeight = 2.3;
+		config.camRecenterDelayMs = 1200;
+		config.camRecenterSpeed = 1.4;
+		config.camRecenterMinSpeed = 1.2;
+		config.camRecenterMinYawDiff = 0.4;
+		config.camLookAheadDist = 1.0;
 		config.camLookAheadSpeedRef = 8;
-		config.camYStabilizeMs = 300;
+		config.camYStabilizeMs = 200;
 		config.camFovBase = 60;
-		config.camFovSpeedBoost = 2;
-		config.camDistSpeedBoost = 0.5;
+		config.camFovSpeedBoost = 0;
+		config.camDistSpeedBoost = 0;
 		config.camSpeedBoostLerp = 2;
 		config.camLerpRate = 6;
 		config.camDragDeadPx = 3;
 		config.camPitchMin = -0.35;
 		config.camPitchMax = 0.9;
-		config.camZoomMin = 4;
-		config.camZoomMax = 18;
+		config.camZoomMin = 8;
+		config.camZoomMax = 14;
 		config.camZoomScrollSpeed = 1.5;
 		config.camZoomPinchSensitivity = 0.02;
+		config.camCollisionMinDist = 5;
 		config.camShakeAmp = 0.15;
 		config.camShakeDuration = 0.25;
 		config.camLedgeFramingUp = 1.5;

@@ -89,13 +89,21 @@ export type LedgeGrabContext = {
 	velocity: THREE.Vector3;
 };
 
+export type LedgeGrabResult = {
+	pos: { x: number; y: number; z: number };
+	/** Wall-surface normal at the chest-hit point. Used for shimmy + pose. */
+	normal: WallNormal;
+};
+
 /**
  * Try to grab a ledge in front of the player. Strict gates avoid false positives:
  * chest hits wall, head clears it, ledge top above chest, within reach.
+ *
+ * Returns the grab position AND the actual wall normal at the chest hit —
+ * this is more accurate than the coarse 4-cardinal queryWallContact, which
+ * misses platform-edge normals that aren't axis-aligned.
  */
-export function tryLedgeGrab(
-	ctx: LedgeGrabContext
-): { x: number; y: number; z: number } | null {
+export function tryLedgeGrab(ctx: LedgeGrabContext): LedgeGrabResult | null {
 	const { physics, collider, body, wallNormal, velocity } = ctx;
 	const { world, rapier } = physics;
 	const origin = body.translation();
@@ -156,10 +164,19 @@ export function tryLedgeGrab(
 	const grabY = ledgeY - HEIGHT / 2 - 0.05;
 	const wallX = origin.x + fwd.x * chestHit.timeOfImpact;
 	const wallZ = origin.z + fwd.z * chestHit.timeOfImpact;
+	// Normalize & snap the chest-hit normal to a horizontal WallNormal (project out Y).
+	let nx = chestHit.normal.x;
+	let nz = chestHit.normal.z;
+	const nMag = Math.hypot(nx, nz) || 1;
+	nx /= nMag;
+	nz /= nMag;
 	return {
-		x: wallX - fwd.x * (RADIUS + 0.05),
-		y: grabY,
-		z: wallZ - fwd.z * (RADIUS + 0.05)
+		pos: {
+			x: wallX - fwd.x * (RADIUS + 0.05),
+			y: grabY,
+			z: wallZ - fwd.z * (RADIUS + 0.05)
+		},
+		normal: { x: nx, z: nz }
 	};
 }
 
