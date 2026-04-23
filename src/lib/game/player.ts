@@ -283,8 +283,27 @@ export class Player {
 		const accelRate = this.grounded ? groundRate : config.accel * config.airControl;
 
 		if (!momentumLocked) {
-			this.velocity.x = approach(this.velocity.x, targetX, accelRate * dt);
-			this.velocity.z = approach(this.velocity.z, targetZ, accelRate * dt);
+			if (hasInput) {
+				// Accelerate toward camera-relative target. Component-wise approach is
+				// fine here because target has a direction — velocity smoothly aligns.
+				this.velocity.x = approach(this.velocity.x, targetX, accelRate * dt);
+				this.velocity.z = approach(this.velocity.z, targetZ, accelRate * dt);
+			} else {
+				// Idle decel: preserve direction, shrink magnitude only. Component-wise
+				// approach would rotate diagonal velocity toward the axes during decel
+				// → facing drifts → character visibly turns while stopping. M64 keeps
+				// direction locked through decel so Mario slides forward then stops.
+				const sp = Math.hypot(this.velocity.x, this.velocity.z);
+				if (sp > 0.001) {
+					const newSp = Math.max(0, sp - accelRate * dt);
+					const k = newSp / sp;
+					this.velocity.x *= k;
+					this.velocity.z *= k;
+				} else {
+					this.velocity.x = 0;
+					this.velocity.z = 0;
+				}
+			}
 
 			// Skid-turn detection: grounded + fast + input reverses direction.
 			// M64 uses this window to allow A-press = side flip. Visual: lean back + freeze.
