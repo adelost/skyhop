@@ -54,6 +54,11 @@
 		{ key: 'ledgeClimbInputDeadzone', min: 0.1, max: 1, step: 0.05 },
 		{ key: 'ledgeClimbCommitMs', min: 0, max: 500, step: 10 },
 		{ key: 'ledgeClimbDurationMs', min: 100, max: 1000, step: 20 },
+		{ key: 'ledgeHangMinMs', min: 0, max: 1000, step: 20 },
+		{ key: 'ledgeClimbFastMs', min: 100, max: 800, step: 20 },
+		{ key: 'ledgeClimbSlowMs', min: 200, max: 1200, step: 20 },
+		{ key: 'ledgeClimbDownMs', min: 150, max: 800, step: 20 },
+		{ key: 'ledgeClimbDownDropDist', min: 0.5, max: 3, step: 0.1 },
 		{ key: 'sideFlipVelXZ', min: 0, max: 15, step: 0.1 },
 		{ key: 'sideFlipRotationDuration', min: 0.1, max: 1.2, step: 0.05 },
 		{ key: 'sideFlipYawSpinRate', min: 0, max: 20, step: 0.5 },
@@ -174,6 +179,11 @@
 		config.ledgeClimbCommitMs = 120;
 		config.ledgePoseDeg = -30;
 		config.ledgeClimbDurationMs = 420;
+		config.ledgeHangMinMs = 333;
+		config.ledgeClimbFastMs = 300;
+		config.ledgeClimbSlowMs = 600;
+		config.ledgeClimbDownMs = 400;
+		config.ledgeClimbDownDropDist = 1.6;
 		config.wallSlidePoseDeg = 22;
 		config.poseLerpRate = 8;
 		config.sameWallLockoutMs = 500;

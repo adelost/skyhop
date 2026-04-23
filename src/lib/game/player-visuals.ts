@@ -130,7 +130,12 @@ export function computePose(input: PoseInput): PoseOutput {
 		const target = (config.wallSlidePoseDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, target, config.poseLerpRate * dt);
 		renderPitch = pitchAngle;
-	} else if (state === "ledge_hang") {
+	} else if (
+		state === "ledge_hang" ||
+		state === "ledge_climb_fast" ||
+		state === "ledge_climb_slow" ||
+		state === "ledge_climb_down"
+	) {
 		const target = (config.ledgePoseDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, target, config.poseLerpRate * dt);
 		renderPitch = pitchAngle;
@@ -271,7 +276,10 @@ function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
 		state === "ground_pound_start" ||
 		state === "dive" ||
 		state === "ground_pound" ||
-		state === "stomach_slide"
+		state === "stomach_slide" ||
+		state === "ledge_climb_fast" ||
+		state === "ledge_climb_slow" ||
+		state === "ledge_climb_down"
 	) {
 		return false;
 	}
@@ -371,12 +379,22 @@ export function computeLimbs(
 			footR.set(0.18, footY, -0.1);
 			break;
 		}
-		case "ledge_hang": {
+		case "ledge_hang":
+		case "ledge_climb_slow":
+		case "ledge_climb_down": {
 			// Arms straight up grabbing ledge; legs hang
 			armL.set(-0.28, 0.7, -0.25);
 			armR.set(0.28, 0.7, -0.25);
 			footL.set(-0.18, footY + 0.05, 0.15);
 			footR.set(0.18, footY + 0.05, 0.15);
+			break;
+		}
+		case "ledge_climb_fast": {
+			// Fast pop-up: arms wider, knees coming up faster
+			armL.set(-0.38, 0.55, -0.3);
+			armR.set(0.38, 0.55, -0.3);
+			footL.set(-0.15, footY + 0.25, -0.05);
+			footR.set(0.15, footY + 0.25, -0.05);
 			break;
 		}
 		case "crouch_slide": {

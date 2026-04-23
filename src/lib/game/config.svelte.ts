@@ -165,7 +165,15 @@ export const config = $state({
 	ledgeClimbInputDeadzone: 0.6,
 	ledgeClimbCommitMs: 120, // require a short deliberate hold before pull-up
 	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
-	ledgeClimbDurationMs: 420, // smooth pull-up animation length
+	ledgeClimbDurationMs: 420, // smooth pull-up animation length (legacy default)
+	// M64-style climb variants: fast = A-press (short), slow = forward-stick
+	// after hangMin (regular), down = back-stick + crouch (descend to airborne
+	// below the ledge face).
+	ledgeHangMinMs: 333, // 10 frames at 30fps — forward-stick slow climb gate
+	ledgeClimbFastMs: 300,
+	ledgeClimbSlowMs: 600,
+	ledgeClimbDownMs: 400,
+	ledgeClimbDownDropDist: 1.6, // meters descended during climb-down
 
 	// Wall-slide pose. Legs-into-wall, head-away: POSITIVE pitch (with nose facing
 	// into wall, positive pitch tips head backward = away from wall).

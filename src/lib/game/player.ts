@@ -31,7 +31,10 @@ export type PlayerState =
 	| "crouch_slide"
 	| "stomach_slide"
 	| "skid"
-	| "ledge_hang";
+	| "ledge_hang"
+	| "ledge_climb_fast"
+	| "ledge_climb_slow"
+	| "ledge_climb_down";
 
 // Latched at takeoff/trigger, cleared on touchdown (snapshotted into
 // landingStyle). Drives per-move landing recovery so single/double/triple/
@@ -93,6 +96,10 @@ export class Player {
 	private climbEnd = new THREE.Vector3();
 	private shimmyDir = 0; // -1, 0, or +1
 	private climbIntentT = 0;
+	// M64-style climb variants. Fast = A-press, Slow = forward-stick after
+	// minimum hang, Down = back-stick + crouch (descends to airborne below
+	// the ledge face). Drives per-variant duration and end-state.
+	private climbVariant: "fast" | "slow" | "down" = "slow";
 
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	// Actual wall normal at chest hit — captured during grab, used for shimmy.
@@ -290,8 +297,15 @@ export class Player {
 		const ny = Math.max(-1, Math.min(1, this.slopeNormal.y));
 		this.slopeAngleDeg = Math.acos(ny) * (180 / Math.PI);
 
-		// Handle ledge-hang as a separate mini state machine.
-		if (this.state === "ledge_hang") {
+		// Handle ledge-hang as a separate mini state machine. Climb variant
+		// states also route here so the animation block can complete before
+		// transitioning out.
+		if (
+			this.state === "ledge_hang" ||
+			this.state === "ledge_climb_fast" ||
+			this.state === "ledge_climb_slow" ||
+			this.state === "ledge_climb_down"
+		) {
 			this.handleLedgeHang(input, physics, dt);
 			return;
 		}
@@ -739,7 +753,13 @@ export class Player {
 		// Climb animation in progress: interpolate + skip rest of logic.
 		if (this.climbT >= 0) {
 			this.climbT += dt;
-			const durSec = config.ledgeClimbDurationMs / 1000;
+			const durMs =
+				this.climbVariant === "fast"
+					? config.ledgeClimbFastMs
+					: this.climbVariant === "down"
+						? config.ledgeClimbDownMs
+						: config.ledgeClimbSlowMs;
+			const durSec = durMs / 1000;
 			const t = Math.min(1, this.climbT / durSec);
 			const eased = t * t * (3 - 2 * t);
 			const x =
@@ -751,13 +771,17 @@ export class Player {
 			this.body.setTranslation({ x, y, z }, true);
 			this.mesh.position.set(x, y, z);
 			if (t >= 1) {
-				this.state = "grounded";
+				// Fast + slow end on top (grounded). Climb-down ends airborne so
+				// the player falls naturally from below the ledge face.
+				this.state =
+					this.climbVariant === "down" ? "airborne" : "grounded";
 				this.ledgePos = null;
 				this.ledgeNormal = null;
 				this.ledgeBodyHandle = null;
 				this.climbT = -1;
 				this.climbIntentT = 0;
 				this.ledgeGrabCooldown = 0.3;
+				if (this.climbVariant === "down") this.velocity.y = 0;
 			}
 			this.updateVisuals(dt);
 			return;
@@ -830,36 +854,51 @@ export class Player {
 		this.velocity.set(0, 0, 0);
 		this.mesh.position.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
 
-		const climbCommitSec = config.ledgeClimbCommitMs / 1000;
-		if (this.climbIntentT >= climbCommitSec) {
-			// Verify the pull-up destination is actually free of geometry (ceiling,
-			// thick ledge lip, corner wall). Skip climb if blocked — the player can
-			// still shimmy sideways until they find a viable spot.
-			const candidateEnd = {
-				x: this.ledgePos.x + intoWall.x * 0.7,
-				y: this.ledgePos.y + HEIGHT + 0.3,
-				z: this.ledgePos.z + intoWall.z * 0.7,
-			};
-			if (verifyClearanceAbove(physics, this.collider, candidateEnd)) {
+		// M64-style triggers. Fast climb (A-press) is instant; slow climb
+		// (forward-stick) requires hangMin; climb-down (back-stick + crouch)
+		// descends to airborne below the ledge face; crouch-tap drops plain.
+		const hangMinSec = config.ledgeHangMinMs / 1000;
+		const candidateUp = {
+			x: this.ledgePos.x + intoWall.x * 0.7,
+			y: this.ledgePos.y + HEIGHT + 0.3,
+			z: this.ledgePos.z + intoWall.z * 0.7,
+		};
+		if (input.jumpPressed) {
+			if (verifyClearanceAbove(physics, this.collider, candidateUp)) {
+				this.climbVariant = "fast";
+				this.state = "ledge_climb_fast";
 				this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
-				this.climbEnd.set(candidateEnd.x, candidateEnd.y, candidateEnd.z);
+				this.climbEnd.set(candidateUp.x, candidateUp.y, candidateUp.z);
 				this.climbT = 0;
 				this.climbIntentT = 0;
 				haptic(20);
+			}
+		} else if (wantsClimb && this.climbIntentT >= hangMinSec) {
+			if (verifyClearanceAbove(physics, this.collider, candidateUp)) {
+				this.climbVariant = "slow";
+				this.state = "ledge_climb_slow";
+				this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
+				this.climbEnd.set(candidateUp.x, candidateUp.y, candidateUp.z);
+				this.climbT = 0;
+				this.climbIntentT = 0;
+				haptic(15);
 			} else {
-				// Blocked — reset intent so user can retry (e.g. after shimmy to cleaner spot)
 				this.climbIntentT = 0;
 			}
-		} else if (input.jumpPressed) {
-			this.velocity.y = config.jumpVel;
-			this.state = "airborne";
-			this.ledgePos = null;
-			this.ledgeNormal = null;
-			this.ledgeBodyHandle = null;
-			this.ledgeGrabCooldown = 0.3;
+		} else if (wantsDrop && input.crouchHeld) {
+			// Climb-down: descend past the ledge face. Ends airborne so the
+			// player falls naturally from the lower position.
+			this.climbVariant = "down";
+			this.state = "ledge_climb_down";
+			this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
+			this.climbEnd.set(
+				this.ledgePos.x - intoWall.x * 0.3,
+				this.ledgePos.y - config.ledgeClimbDownDropDist,
+				this.ledgePos.z - intoWall.z * 0.3,
+			);
+			this.climbT = 0;
 			this.climbIntentT = 0;
-			this.jumpChain = 1;
-			haptic(15);
+			haptic(10);
 		} else if (input.crouchPressed || wantsDrop) {
 			this.state = "airborne";
 			this.ledgePos = null;
