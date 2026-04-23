@@ -29,6 +29,7 @@ export type PlayerState =
 	| "side_flip"
 	| "slope_slide"
 	| "crouch_slide"
+	| "stomach_slide"
 	| "skid"
 	| "ledge_hang";
 
@@ -340,6 +341,11 @@ export class Player {
 					input.crouchHeld &&
 					Math.hypot(this.velocity.x, this.velocity.z) > 0.5;
 				this.state = sliding ? "crouch_slide" : "grounded";
+			} else if (this.state === "stomach_slide") {
+				// Dive-landing slide: stays until lateral drops below threshold.
+				// No crouch-hold requirement — it's a recovery, not voluntary.
+				const sliding = Math.hypot(this.velocity.x, this.velocity.z) > 1.5;
+				if (!sliding) this.state = "grounded";
 			} else if (this.state === "skid") {
 				this.skidT += dt;
 				if (this.skidT >= config.skidDurationMs / 1000) this.state = "grounded";
@@ -359,6 +365,7 @@ export class Player {
 					this.state === "ground_pound")) ||
 			this.state === "slope_slide" ||
 			this.state === "crouch_slide" ||
+			this.state === "stomach_slide" ||
 			this.state === "skid";
 
 		let groundRate: number;
@@ -426,6 +433,12 @@ export class Player {
 				this.velocity.x += gAlong.x * dt * 0.7;
 				this.velocity.z += gAlong.z * dt * 0.7;
 			}
+		}
+		// Stomach-slide: belly-drag after dive landing. Higher friction than the
+		// butt slide since the whole body is on the ground.
+		if (this.state === "stomach_slide") {
+			this.velocity.x = approach(this.velocity.x, 0, 8 * dt);
+			this.velocity.z = approach(this.velocity.z, 0, 8 * dt);
 		}
 
 		this.timeSinceGrounded += dt;
@@ -597,6 +610,9 @@ export class Player {
 				this.timeSinceLanding = 0;
 				this.chainOnLanding = this.jumpChain;
 				this.jumpChain = 0;
+				// Remember whether this was a dive-landing before we overwrite
+				// state — routes into stomach_slide for the drag recovery.
+				const wasDive = this.state === "dive";
 				// Snapshot moveVariant into landingStyle so recovery pose has the
 				// right duration and per-style look. Cleared when the window
 				// decays to 0 in step().
@@ -605,8 +621,16 @@ export class Player {
 					this.landingStyleT = landingDurationFor(this.moveVariant);
 					this.moveVariant = null;
 				}
-				// State will be re-evaluated top-of-loop next tick
-				this.state = "grounded";
+				// Dive with residual lateral velocity becomes a belly drag.
+				// Otherwise just grounded; next tick re-evaluates normally.
+				if (
+					wasDive &&
+					Math.hypot(this.velocity.x, this.velocity.z) > 1.5
+				) {
+					this.state = "stomach_slide";
+				} else {
+					this.state = "grounded";
+				}
 			} else if (this.velocity.y < 0) {
 				this.velocity.y = 0;
 			}

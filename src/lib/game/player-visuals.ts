@@ -129,6 +129,14 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = lerpToward(pitchAngle, targetLean, 10 * dt);
 		renderPitch = pitchAngle;
 	} else if (state === "crouch_slide") {
+		// Butt slide: torso upright with a small back-lean, legs folded under.
+		// M64 source of long jump. Pose reads as "sitting and gliding" rather
+		// than face-down sprawl.
+		pitchAngle = lerpToward(pitchAngle, Math.PI / 8, 10 * dt);
+		renderPitch = pitchAngle;
+		targetScaleY = 0.55;
+	} else if (state === "stomach_slide") {
+		// Belly slide after a dive landing. Face-first sprawl.
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 2, 12 * dt);
 		renderPitch = pitchAngle;
 		targetScaleY = 0.55;
@@ -171,6 +179,7 @@ export function computePose(input: PoseInput): PoseOutput {
 		crouching &&
 		recentlyGrounded &&
 		state !== "crouch_slide" &&
+		state !== "stomach_slide" &&
 		state !== "slope_slide"
 	) {
 		targetScaleY = 0.55;
@@ -251,7 +260,8 @@ function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
 		state === "side_flip" ||
 		state === "ground_pound_start" ||
 		state === "dive" ||
-		state === "ground_pound"
+		state === "ground_pound" ||
+		state === "stomach_slide"
 	) {
 		return false;
 	}
@@ -360,8 +370,17 @@ export function computeLimbs(
 			break;
 		}
 		case "crouch_slide": {
-			// Flat on belly — arms forward, feet back. Scale.y is 0.55 so
-			// actual world placement is already low.
+			// Butt slide: arms out back for balance, feet forward and slightly
+			// bent. Torso handled by back-lean pitch in computePose.
+			armL.set(-0.45, 0.05, 0.25);
+			armR.set(0.45, 0.05, 0.25);
+			footL.set(-0.15, -0.1, -0.3);
+			footR.set(0.15, -0.1, -0.3);
+			break;
+		}
+		case "stomach_slide": {
+			// Belly slide after dive: flat on belly — arms forward, feet back.
+			// Scale.y is 0.55 so actual world placement is already low.
 			armL.set(-0.3, -0.1, -0.4);
 			armR.set(0.3, -0.1, -0.4);
 			footL.set(-0.15, -0.1, 0.35);
