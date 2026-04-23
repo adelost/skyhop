@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { PlayerState } from "./player";
+import type { MoveVariant, PlayerState } from "./player";
 import type { WallNormal } from "./player-queries";
 import { config } from "./config.svelte";
 import { RADIUS, HEIGHT } from "./player-constants";
@@ -23,6 +23,10 @@ export type PoseInput = {
 	// Seconds since the current state was entered. Used for phase-based rotation
 	// curves (side_flip roll, etc). Reset by caller when state changes.
 	stateTime: number;
+	// Recovery pose override after touchdown. Set from moveVariant latched at
+	// takeoff/trigger, decays with landingStyleT. null when not recovering.
+	landingStyle: MoveVariant | null;
+	landingStyleT: number;
 };
 
 export type PoseOutput = {
@@ -142,6 +146,24 @@ export function computePose(input: PoseInput): PoseOutput {
 		renderPitch = pitchAngle;
 	}
 
+	// Per-move landing recovery: moveVariant latched at takeoff is snapshotted
+	// into landingStyle on touchdown. During the window, deepen the squat and
+	// apply a small pitch tilt so single/double/triple/long/dive/pound all read
+	// as different recoveries without extra states.
+	if (
+		state === "grounded" &&
+		input.landingStyle &&
+		input.landingStyleT > 0
+	) {
+		const peakDur = 0.22; // largest window (triple/pound)
+		const fade = Math.min(1, input.landingStyleT / peakDur);
+		const depth = landingDepth(input.landingStyle);
+		const tilt = landingPitchTilt(input.landingStyle) * fade;
+		targetScaleY = Math.min(targetScaleY, 1 - (1 - depth) * fade);
+		renderPitch = tilt;
+		pitchAngle = tilt;
+	}
+
 	// Crouch scale with grace period (150ms) so grounded flicker doesn't spam
 	// the pose up/down while shift is held.
 	const recentlyGrounded = grounded || timeSinceGrounded < 0.15;
@@ -182,6 +204,43 @@ export function computePose(input: PoseInput): PoseOutput {
 
 function easeInOutSine(t: number): number {
 	return -(Math.cos(Math.PI * t) - 1) / 2;
+}
+
+// Minimum scale.y during landing recovery. Heavier moves crunch deeper.
+function landingDepth(variant: MoveVariant): number {
+	switch (variant) {
+		case "dive":
+			return 0.5;
+		case "ground_pound":
+			return 0.55;
+		case "long_jump":
+			return 0.6;
+		case "triple":
+		case "backflip":
+		case "side_flip":
+			return 0.75;
+		case "double":
+		case "wall_kick":
+			return 0.85;
+		case "single":
+			return 0.95;
+	}
+}
+
+// Recovery pitch tilt (radians) at peak of landing window. Fades to 0.
+function landingPitchTilt(variant: MoveVariant): number {
+	switch (variant) {
+		case "dive":
+			return -Math.PI / 5; // face-first sprawl
+		case "long_jump":
+			return -Math.PI / 8; // forward tumble
+		case "backflip":
+			return Math.PI / 10; // slight back lean on recovery
+		case "ground_pound":
+			return 0.1; // compact stomp, minimal tilt
+		default:
+			return 0;
+	}
 }
 
 function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {

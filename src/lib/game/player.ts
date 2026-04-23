@@ -32,6 +32,20 @@ export type PlayerState =
 	| "skid"
 	| "ledge_hang";
 
+// Latched at takeoff/trigger, cleared on touchdown (snapshotted into
+// landingStyle). Drives per-move landing recovery so single/double/triple/
+// dive/pound all read differently without extra state cases.
+export type MoveVariant =
+	| "single"
+	| "double"
+	| "triple"
+	| "backflip"
+	| "side_flip"
+	| "long_jump"
+	| "dive"
+	| "wall_kick"
+	| "ground_pound";
+
 export type DebugInfo = {
 	state: PlayerState;
 	vx: number;
@@ -101,6 +115,12 @@ export class Player {
 	// curves (side_flip roll, triple/backflip somersault).
 	private stateTime = 0;
 	private prevVisState: PlayerState = "airborne";
+
+	// Latched at takeoff/trigger, snapshotted into landingStyle on touchdown
+	// so recovery pose + duration can be per-move without extra state cases.
+	private moveVariant: MoveVariant | null = null;
+	private landingStyle: MoveVariant | null = null;
+	private landingStyleT = 0;
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -257,6 +277,10 @@ export class Player {
 		this.accumTime += dt;
 		if (this.landingSquashT > 0)
 			this.landingSquashT = Math.max(0, this.landingSquashT - dt);
+		if (this.landingStyleT > 0) {
+			this.landingStyleT = Math.max(0, this.landingStyleT - dt);
+			if (this.landingStyleT === 0) this.landingStyle = null;
+		}
 
 		// Query slope/surface FIRST so this frame's movement knows about it.
 		this.surface = this.grounded
@@ -471,6 +495,7 @@ export class Player {
 				this.state = "ground_pound_start";
 				this.groundPoundStartT = 0;
 				this.jumpChain = 0;
+				this.moveVariant = "ground_pound";
 				this.setFacing(this.facingYaw);
 				haptic(15);
 			} else if (triggerDive) {
@@ -482,6 +507,7 @@ export class Player {
 				this.velocity.y = config.diveVelY;
 				this.state = "dive";
 				this.jumpChain = 0;
+				this.moveVariant = "dive";
 				this.snapFacingToVelocity();
 				haptic(15);
 			}
@@ -571,6 +597,14 @@ export class Player {
 				this.timeSinceLanding = 0;
 				this.chainOnLanding = this.jumpChain;
 				this.jumpChain = 0;
+				// Snapshot moveVariant into landingStyle so recovery pose has the
+				// right duration and per-style look. Cleared when the window
+				// decays to 0 in step().
+				if (this.moveVariant) {
+					this.landingStyle = this.moveVariant;
+					this.landingStyleT = landingDurationFor(this.moveVariant);
+					this.moveVariant = null;
+				}
 				// State will be re-evaluated top-of-loop next tick
 				this.state = "grounded";
 			} else if (this.velocity.y < 0) {
@@ -835,6 +869,8 @@ export class Player {
 			currentScaleY: this.visualGroup.scale.y,
 			landingSquashT: this.landingSquashT,
 			stateTime: this.stateTime,
+			landingStyle: this.landingStyle,
+			landingStyleT: this.landingStyleT,
 		});
 		this.facingYaw = pose.facingYaw;
 		this.pitchAngle = pose.pitchAngle;
@@ -902,6 +938,7 @@ export class Player {
 		this.wallNormal = null;
 		this.timeSinceWall = 999;
 		this.targetYaw = result.targetYaw;
+		this.moveVariant = "wall_kick";
 	}
 
 	private executeJump(
@@ -929,6 +966,7 @@ export class Player {
 		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
 		this.state = result.state;
 		this.jumpChain = result.jumpChain;
+		this.moveVariant = result.moveVariant;
 
 		if (result.facing === "snap-to-velocity") this.snapFacingToVelocity();
 		else if (typeof result.facing === "object")
@@ -1125,5 +1163,28 @@ function haptic(ms: number): void {
 		typeof navigator.vibrate === "function"
 	) {
 		navigator.vibrate(ms);
+	}
+}
+
+function landingDurationFor(variant: MoveVariant): number {
+	switch (variant) {
+		case "single":
+			return config.landSingleMs / 1000;
+		case "double":
+			return config.landDoubleMs / 1000;
+		case "triple":
+			return config.landTripleMs / 1000;
+		case "backflip":
+			return config.landBackflipMs / 1000;
+		case "side_flip":
+			return config.landSideFlipMs / 1000;
+		case "long_jump":
+			return config.landLongJumpMs / 1000;
+		case "dive":
+			return config.landDiveMs / 1000;
+		case "wall_kick":
+			return config.landWallKickMs / 1000;
+		case "ground_pound":
+			return config.landGroundPoundMs / 1000;
 	}
 }

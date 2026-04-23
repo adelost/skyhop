@@ -169,6 +169,20 @@ export const config = $state({
 	// Smoothness of transitions between poses (rad/s toward target).
 	poseLerpRate: 8,
 
+	// Landing recovery durations per move variant (ms). M64 has move-specific
+	// land/recovery animations; we approximate with a short window that holds
+	// a pose override before decaying back to grounded. Latched at touchdown
+	// from moveVariant (takeoff latch).
+	landSingleMs: 120,
+	landDoubleMs: 140,
+	landTripleMs: 220,
+	landBackflipMs: 200,
+	landSideFlipMs: 180,
+	landLongJumpMs: 180,
+	landDiveMs: 260,
+	landWallKickMs: 140,
+	landGroundPoundMs: 220,
+
 	// Wall-kick lockout: can't re-kick the same wall for this duration.
 	sameWallLockoutMs: 500,
 });
