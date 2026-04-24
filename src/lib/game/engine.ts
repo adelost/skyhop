@@ -8,6 +8,23 @@ import { BlobShadow, DustPool } from './effects';
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 5;
+const CAMERA_FOCUS_HEIGHT = 0.35;
+const DEFAULT_CHASE_PITCH = -0.14;
+const SLIDE_CHASE_PITCH = -0.24;
+const CAMERA_FLOOR_MARGIN = 1.1;
+const CAMERA_CEIL_MARGIN = 0.7;
+const OCCLUSION_HOLD_MS = 300; // once a clear yaw is chosen, don't re-search for this long
+const YAW_SEARCH_OFFSETS = [
+	0,
+	Math.PI / 8,
+	-Math.PI / 8,
+	Math.PI / 4,
+	-Math.PI / 4,
+	(3 * Math.PI) / 8,
+	(-3 * Math.PI) / 8,
+	Math.PI / 2,
+	-Math.PI / 2
+];
 
 export class Game {
 	private renderer: THREE.WebGLRenderer;
@@ -43,8 +60,10 @@ export class Game {
 	private modeEnterT = 0;
 	private goalFocus = new THREE.Vector3();
 	private goalPos = new THREE.Vector3();
-	// Reserved for commit 2 (manual-offset decay + discrete zoom bands).
+	private occlusionHoldT = 0;
+	// Reserved for later commits (manual-offset decay + discrete zoom bands).
 	private modeOffsetYaw = 0;
+	private pitchOffset = 0;
 	private panDistance = 0;
 	private zoomState: "normal" | "zoomed_out" | "close" = "normal";
 
@@ -144,6 +163,9 @@ export class Game {
 			config.camPitchMin,
 			Math.min(config.camPitchMax, this.cameraPitch + delta)
 		);
+		if (!this.firstPerson) {
+			this.pitchOffset = THREE.MathUtils.clamp(this.pitchOffset + delta, -0.8, 0.8);
+		}
 		this.timeSinceCamInput = 0;
 	}
 
@@ -158,9 +180,14 @@ export class Game {
 	recenterCam(): void {
 		if (this.player) this.cameraYaw = this.player.facing;
 		else this.cameraYaw = 0;
-		this.cameraPitch = 0;
+		this.cameraPitch =
+			this.cameraMode === "slide_chase"
+				? SLIDE_CHASE_PITCH
+				: DEFAULT_CHASE_PITCH;
 		this.cameraDist = config.camDistance;
 		this.modeOffsetYaw = 0;
+		this.pitchOffset = 0;
+		this.occlusionHoldT = 0;
 		this.timeSinceCamInput = 999;
 	}
 
@@ -240,6 +267,7 @@ export class Game {
 
 	private updateCamera(dt: number): void {
 		this.timeSinceCamInput += dt;
+		this.occlusionHoldT = Math.max(0, this.occlusionHoldT - dt);
 
 		// First-person: early return with direct head-mounted camera. Lab-only
 		// feature; the rest of the pipeline is for the mode-driven 3rd-person.
@@ -291,13 +319,40 @@ export class Game {
 			if (Math.abs(diff) <= step) this.cameraYaw = baseYawGoal;
 			else this.cameraYaw += Math.sign(diff) * step;
 		}
+		this.cameraYaw = normalizeAngle(this.cameraYaw);
+
+		const basePitch =
+			this.cameraMode === "slide_chase" ? SLIDE_CHASE_PITCH : DEFAULT_CHASE_PITCH;
+		const pitchReclaimRate =
+			this.cameraMode === "slide_chase"
+				? config.camYawFollowSlide * 0.8
+				: config.camYawFollowDefault * 0.8;
+		if (this.timeSinceCamInput > reclaimDelay) {
+			this.pitchOffset = expFollow(this.pitchOffset, 0, pitchReclaimRate, dt);
+		}
+		const goalPitch = THREE.MathUtils.clamp(
+			basePitch + this.pitchOffset,
+			config.camPitchMin,
+			config.camPitchMax,
+		);
+		this.cameraPitch = expFollow(this.cameraPitch, goalPitch, pitchReclaimRate, dt);
 
 		// Goal distance: state-based. Slide sits a touch further out so downhill
 		// reads. User wheel-zoom still wins via cameraDist.
-		const goalDist =
+		const goalDist = THREE.MathUtils.clamp(
 			this.cameraMode === "slide_chase"
 				? this.cameraDist + config.camSlideDistanceAdd
-				: this.cameraDist;
+				: this.cameraDist,
+			config.camZoomMin,
+			config.camZoomMax,
+		);
+
+		const baseFocus = new THREE.Vector3(
+			this.player.position.x,
+			effectiveY + CAMERA_FOCUS_HEIGHT + ledgeLift,
+			this.player.position.z,
+		);
+		this.cameraYaw = this.findBestYaw(baseFocus, baseYawGoal, this.cameraPitch, goalDist);
 
 		// Goal focus: player position (with Y stabilize + ledge lift) plus
 		// lateral pan along facing when camera is off-axis. Replaces the
@@ -309,7 +364,7 @@ export class Game {
 		const facingZ = -Math.cos(this.player.facing);
 		this.goalFocus.set(
 			this.player.position.x + facingX * panAmount,
-			effectiveY + ledgeLift,
+			effectiveY + CAMERA_FOCUS_HEIGHT + ledgeLift,
 			this.player.position.z + facingZ * panAmount,
 		);
 
@@ -323,8 +378,9 @@ export class Game {
 			this.goalFocus.y + config.camHeight - pitchHeight,
 			this.goalFocus.z + offsetZ,
 		);
+		this.goalPos.y = this.solveGoalHeight(this.goalPos);
 
-		// Collision shrink (commit 2 replaces this with yaw-search-first).
+		// Yaw-search is now primary. Shrink remains fallback when no angle clears.
 		const toCam = this.goalPos.clone().sub(this.goalFocus);
 		const desiredDist = toCam.length();
 		if (desiredDist > 0.1) {
@@ -403,6 +459,79 @@ export class Game {
 		}
 	}
 
+	private findBestYaw(focus: THREE.Vector3, baseYawGoal: number, pitch: number, dist: number): number {
+		if (this.occlusionHoldT > 0) {
+			const heldCandidate = orbitPosition(focus, this.cameraYaw, pitch, dist, config.camHeight);
+			heldCandidate.y = this.solveGoalHeight(heldCandidate);
+			if (this.measureClearance(focus, heldCandidate) >= dist * 0.6) {
+				return this.cameraYaw;
+			}
+		}
+
+		let bestYaw = this.cameraYaw;
+		let bestClearance = -Infinity;
+
+		for (const offset of [this.cameraYaw - baseYawGoal, ...YAW_SEARCH_OFFSETS]) {
+			const yaw = normalizeAngle(baseYawGoal + offset);
+			const candidate = orbitPosition(focus, yaw, pitch, dist, config.camHeight);
+			candidate.y = this.solveGoalHeight(candidate);
+			const clearance = this.measureClearance(focus, candidate);
+			if (clearance >= dist - 0.05) return yaw;
+			if (clearance > bestClearance) {
+				bestClearance = clearance;
+				bestYaw = yaw;
+			}
+		}
+
+		if (bestYaw !== this.cameraYaw) {
+			this.occlusionHoldT = OCCLUSION_HOLD_MS / 1000;
+		}
+
+		return bestYaw;
+	}
+
+	private measureClearance(focus: THREE.Vector3, pos: THREE.Vector3): number {
+		const toCam = pos.clone().sub(focus);
+		const desiredDist = toCam.length();
+		if (desiredDist <= 0.1) return desiredDist;
+		toCam.normalize();
+		const rapier = this.physics.rapier;
+		const ray = new rapier.Ray(
+			{ x: focus.x, y: focus.y, z: focus.z },
+			{ x: toCam.x, y: toCam.y, z: toCam.z },
+		);
+		const hit = this.physics.world.castRay(ray, desiredDist, true);
+		return hit ? Math.max(0, hit.timeOfImpact - 0.25) : desiredDist;
+	}
+
+	private solveGoalHeight(pos: THREE.Vector3): number {
+		const rapier = this.physics.rapier;
+		let y = pos.y;
+
+		const floorStartY = y + 6;
+		const floorRay = new rapier.Ray(
+			{ x: pos.x, y: floorStartY, z: pos.z },
+			{ x: 0, y: -1, z: 0 },
+		);
+		const floorHit = this.physics.world.castRay(floorRay, 24, true);
+		if (floorHit) {
+			const floorY = floorStartY - floorHit.timeOfImpact;
+			y = Math.max(y, floorY + CAMERA_FLOOR_MARGIN);
+		}
+
+		const ceilRay = new rapier.Ray(
+			{ x: pos.x, y: y + 0.2, z: pos.z },
+			{ x: 0, y: 1, z: 0 },
+		);
+		const ceilHit = this.physics.world.castRay(ceilRay, 12, true);
+		if (ceilHit) {
+			const ceilY = y + 0.2 + ceilHit.timeOfImpact;
+			y = Math.min(y, ceilY - CAMERA_CEIL_MARGIN);
+		}
+
+		return y;
+	}
+
 	private onResize = (): void => {
 		const w = window.innerWidth;
 		const h = window.innerHeight;
@@ -433,4 +562,20 @@ function normalizeAngle(a: number): number {
 function expFollow(current: number, target: number, rate: number, dt: number): number {
 	const t = 1 - Math.exp(-rate * dt);
 	return current + (target - current) * t;
+}
+
+function orbitPosition(
+	focus: THREE.Vector3,
+	yaw: number,
+	pitch: number,
+	dist: number,
+	height: number,
+): THREE.Vector3 {
+	const pitchRadius = Math.cos(pitch) * dist;
+	const pitchHeight = Math.sin(pitch) * dist;
+	return new THREE.Vector3(
+		focus.x + Math.sin(yaw) * pitchRadius,
+		focus.y + height - pitchHeight,
+		focus.z + Math.cos(yaw) * pitchRadius,
+	);
 }
