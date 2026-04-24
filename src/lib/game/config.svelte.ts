@@ -205,6 +205,35 @@ export const config = $state({
 
 	// Wall-kick lockout: can't re-kick the same wall for this duration.
 	sameWallLockoutMs: 500,
+
+	// Camera mode-driven behavior (see SKYHOP-CAMERA-SPEC.md).
+	// Distance baseline for slide_chase (applied on top of the user-driven
+	// cameraDist from wheel). Spec: 8.5-9.0m; we offset from whatever the user
+	// has set rather than hard-overriding so manual zoom still matters.
+	camSlideDistanceAdd: 0.8,
+	// Reclaim: shorter, more assertive than the legacy camRecenterDelayMs.
+	// After this much idle (no drag/wheel), camera starts approaching the
+	// behind-facing goal regardless of drift magnitude.
+	camReclaimDelayMs: 800,
+	// Hysteresis on slide-mode transitions so taps/short slides don't thrash.
+	camSlideHysteresisInMs: 80,
+	camSlideHysteresisOutMs: 120,
+	// Lateral pan: fraction of goal distance that focus shifts along player
+	// facing when camera yaw is off-axis. Replaces velocity-lookahead.
+	camLateralPanMax: 0.15,
+	// Yaw reclaim rates (rad/s). Slide locks behind faster than default.
+	// Scaled down when player is nearly still so a standing player doesn't
+	// get spun around by a persistent reclaim force.
+	camYawFollowDefault: 2.2,
+	camYawFollowSlide: 4.5,
+	camYawFollowStillMult: 0.3,
+	camMovingSpeedThresh: 1.2,
+	// Two-layer smoothing: focus catches up faster than camera body, so
+	// composition reads quickly while the body has physical lag.
+	camFocusFollowH: 20,
+	camFocusFollowV: 6,
+	camPosFollowH: 6,
+	camPosFollowV: 6,
 });
 
 export type Config = typeof config;
