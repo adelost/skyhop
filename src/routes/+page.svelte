@@ -258,7 +258,7 @@
 <div class="hud">
 	<div class="title">skyhop</div>
 	<div class="hint">
-		WASD · space · shift long/back · E dive/pound · drag cam · wheel zoom · right-click lock · V 1st-person · C recenter · T · R
+		WASD · space · shift duck/crawl · E punch/kick/dive · drag cam · wheel zoom · right-click lock · V 1st-person · C recenter · T · R
 	</div>
 </div>
 
@@ -277,7 +277,7 @@
 	JUMP
 </div>
 <div class="touch-btn crouch" bind:this={crouchZone}>DUCK</div>
-<div class="touch-btn action" bind:this={actionZone}>ACT</div>
+<div class="touch-btn action" bind:this={actionZone}>PUNCH</div>
 <button class="cam-recenter" onclick={() => game?.recenterCam()} aria-label="recenter cam">↺</button>
 
 <style>
@@ -357,8 +357,8 @@
 	.action {
 		right: 110px;
 		bottom: 40px;
-		background: rgba(255, 150, 100, 0.2);
-		border-color: rgba(255, 150, 100, 0.6);
+		background: rgba(255, 80, 60, 0.25);
+		border-color: rgba(255, 80, 60, 0.7);
 	}
 	.crouch {
 		right: 20px;
