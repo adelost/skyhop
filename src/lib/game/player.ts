@@ -386,7 +386,16 @@ export class Player {
 
 		// Update state based on grounded context.
 		if (this.grounded) {
-			if (slopeTooSteep) {
+			// Punch / sweep states own their own lifecycle — the per-state ticker
+			// blocks below transition them out. Don't clobber them here.
+			const inPunchOrSweep =
+				this.state === "punch_1" ||
+				this.state === "punch_2" ||
+				this.state === "kick" ||
+				this.state === "sweep_kick";
+			if (inPunchOrSweep) {
+				// no-op — leave state alone
+			} else if (slopeTooSteep) {
 				this.state = "slope_slide";
 			} else if (
 				wantsCrouchSlide ||
