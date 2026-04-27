@@ -632,7 +632,7 @@ export class Player {
 		}
 
 		// Grounded action button = M64 B button. Routing matches M64:
-		//   crouchHeld          → sweep kick / breakdance (Phase 3, not yet wired)
+		//   crouchHeld          → sweep kick / breakdance
 		//   speed ≥ threshold   → dive (run + B)
 		//   otherwise           → punch combo (chain-aware)
 		if (input.actionPressed && this.grounded) {
