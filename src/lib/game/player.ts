@@ -34,7 +34,12 @@ export type PlayerState =
 	| "ledge_hang"
 	| "ledge_climb_fast"
 	| "ledge_climb_slow"
-	| "ledge_climb_down";
+	| "ledge_climb_down"
+	// M64 punch combo (act_punching / act_move_punching / kick state).
+	// Re-tapping action inside each state's recovery window chains forward.
+	| "punch_1"
+	| "punch_2"
+	| "kick";
 
 // Latched at takeoff/trigger, cleared on touchdown (snapshotted into
 // landingStyle). Drives per-move landing recovery so single/double/triple/
@@ -48,7 +53,8 @@ export type MoveVariant =
 	| "long_jump"
 	| "dive"
 	| "wall_kick"
-	| "ground_pound";
+	| "ground_pound"
+	| "punch";
 
 export type DebugInfo = {
 	state: PlayerState;
@@ -115,6 +121,11 @@ export class Player {
 	private poundImpactPending = false;
 	private landImpactPending = false;
 	private skidStartPending = false;
+	// Punch combo timer (seconds inside current punch state). Combo input is
+	// accepted only after the active phase ends (so the player has to commit
+	// to a hit before chaining the next one), and rejected after recovery
+	// closes (so the swing returns to idle cleanly).
+	private punchT = 0;
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
 	private groundPoundStartT = 0;
@@ -276,6 +287,7 @@ export class Player {
 		this.skidStartPending = false;
 		this.landingSquashT = 0;
 		this.groundPoundStartT = 0;
+		this.punchT = 0;
 		this.state = "airborne";
 	}
 
@@ -380,7 +392,11 @@ export class Player {
 			this.state === "slope_slide" ||
 			this.state === "crouch_slide" ||
 			this.state === "stomach_slide" ||
-			this.state === "skid";
+			this.state === "skid" ||
+			// Punch states freeze player input — XZ decay handled in punch handler.
+			this.state === "punch_1" ||
+			this.state === "punch_2" ||
+			this.state === "kick";
 
 		let groundRate: number;
 		if (hasInput)
@@ -454,6 +470,31 @@ export class Player {
 			this.velocity.x = approach(this.velocity.x, 0, 8 * dt);
 			this.velocity.z = approach(this.velocity.z, 0, 8 * dt);
 		}
+		// Punch combo: tick timer, decay XZ slowly, auto-exit at end of state.
+		// Phase encoded in state name (punch_1 → punch_2 → kick).
+		if (
+			this.state === "punch_1" ||
+			this.state === "punch_2" ||
+			this.state === "kick"
+		) {
+			this.punchT += dt;
+			this.velocity.x = approach(this.velocity.x, 0, config.punchDecel * dt);
+			this.velocity.z = approach(this.velocity.z, 0, config.punchDecel * dt);
+			const total =
+				this.state === "punch_1"
+					? (config.punch1ActiveMs + config.punch1RecoveryMs) / 1000
+					: this.state === "punch_2"
+						? (config.punch2ActiveMs + config.punch2RecoveryMs) / 1000
+						: (config.kickActiveMs + config.kickRecoveryMs) / 1000;
+			if (this.punchT >= total) {
+				// Recovery window over — return to grounded with short land-style.
+				this.state = "grounded";
+				this.punchT = 0;
+				this.landingStyle = "punch";
+				this.landingStyleT = config.landPunchMs / 1000;
+				this.moveVariant = null;
+			}
+		}
 
 		this.timeSinceGrounded += dt;
 		if (this.grounded) {
@@ -502,6 +543,38 @@ export class Player {
 			haptic(12);
 		}
 
+		// Grounded action button = M64 B button. Routing matches M64:
+		//   crouchHeld          → sweep kick / breakdance (Phase 3, not yet wired)
+		//   speed ≥ threshold   → dive (run + B)
+		//   otherwise           → punch combo (chain-aware)
+		if (input.actionPressed && this.grounded) {
+			const inPunchState =
+				this.state === "punch_1" ||
+				this.state === "punch_2" ||
+				this.state === "kick";
+			if (input.crouchHeld) {
+				// sweep_kick wires here in Phase 3
+			} else if (horizSpeed >= config.diveSpeedThreshold && !inPunchState) {
+				// Ground dive: run + B. Mirrors aerial dive impulse but launches us
+				// off the ground so existing dive→stomach_slide landing path runs.
+				this.executeDive(horizSpeed, mx, mz, true);
+				haptic(15);
+			} else {
+				// Punch combo. Chain only after the active phase closes — forces
+				// the player to commit one swing before queuing the next.
+				if (this.state === "punch_1") {
+					if (this.punchT >= config.punch1ActiveMs / 1000)
+						this.executePunch(2);
+				} else if (this.state === "punch_2") {
+					if (this.punchT >= config.punch2ActiveMs / 1000)
+						this.executePunch(3);
+				} else if (this.state !== "kick") {
+					this.executePunch(1);
+				}
+				haptic(8);
+			}
+		}
+
 		// Aerial actions (ground pound / dive)
 		if (
 			!this.grounded &&
@@ -526,16 +599,7 @@ export class Player {
 				this.setFacing(this.facingYaw);
 				haptic(15);
 			} else if (triggerDive) {
-				const mag = Math.max(horizSpeed, 1);
-				const dx = this.velocity.x / mag;
-				const dz = this.velocity.z / mag;
-				this.velocity.x = dx * config.diveVelXZ;
-				this.velocity.z = dz * config.diveVelXZ;
-				this.velocity.y = config.diveVelY;
-				this.state = "dive";
-				this.jumpChain = 0;
-				this.moveVariant = "dive";
-				this.snapFacingToVelocity();
+				this.executeDive(horizSpeed, mx, mz, false);
 				haptic(15);
 			}
 		}
@@ -1045,6 +1109,56 @@ export class Player {
 		this.timeSinceLanding = 999;
 	}
 
+	private executeDive(
+		horizSpeed: number,
+		mx: number,
+		mz: number,
+		fromGround: boolean,
+	): void {
+		const mag = Math.max(horizSpeed, 1);
+		let dx = this.velocity.x / mag;
+		let dz = this.velocity.z / mag;
+		if (Math.hypot(dx, dz) < 0.5) {
+			const inputMag = Math.hypot(mx, mz);
+			if (inputMag > 0.1) {
+				dx = mx / inputMag;
+				dz = mz / inputMag;
+			}
+		}
+		this.velocity.x = dx * config.diveVelXZ;
+		this.velocity.z = dz * config.diveVelXZ;
+		if (fromGround) {
+			// Small upward kick so the dive actually leaves the floor and follows
+			// an arc into the stomach-slide landing path. Without it we'd just
+			// scrape forward and never trigger the airborne→dive→stomach pipeline.
+			this.velocity.y = Math.max(this.velocity.y, 4);
+			this.grounded = false;
+			this.timeSinceGrounded = 999;
+		} else {
+			this.velocity.y = config.diveVelY;
+		}
+		this.state = "dive";
+		this.jumpChain = 0;
+		this.moveVariant = "dive";
+		this.snapFacingToVelocity();
+	}
+
+	private executePunch(phase: 1 | 2 | 3): void {
+		// Cap forward velocity on entry. M64 ACT_MOVE_PUNCHING caps fVel at 6 u/f.
+		const sp = Math.hypot(this.velocity.x, this.velocity.z);
+		if (sp > config.punchEntryVelCap) {
+			const k = config.punchEntryVelCap / sp;
+			this.velocity.x *= k;
+			this.velocity.z *= k;
+		}
+		this.state = phase === 1 ? "punch_1" : phase === 2 ? "punch_2" : "kick";
+		this.punchT = 0;
+		this.moveVariant = "punch";
+		// Lock facing for the duration. The player aims by walking briefly before
+		// the punch, then commits — same feel as M64.
+		this.setFacing(this.facingYaw);
+	}
+
 	/**
 	 * Snapshot body position after a physics step. Engine calls this once per
 	 * fixed step (after physics.world.step()). Rotates prev←curr, curr←body.
@@ -1182,6 +1296,9 @@ export class Player {
 			this.state === "dive" ||
 			this.state === "ground_pound_start" ||
 			this.state === "ground_pound" ||
+			this.state === "punch_1" ||
+			this.state === "punch_2" ||
+			this.state === "kick" ||
 			(this.state === "airborne" && this.jumpChain === 3)
 		);
 	}
@@ -1256,5 +1373,7 @@ function landingDurationFor(variant: MoveVariant): number {
 			return config.landWallKickMs / 1000;
 		case "ground_pound":
 			return config.landGroundPoundMs / 1000;
+		case "punch":
+			return config.landPunchMs / 1000;
 	}
 }

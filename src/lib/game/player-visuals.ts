@@ -145,6 +145,14 @@ export function computePose(input: PoseInput): PoseOutput {
 		const targetLean = (config.skidLeanDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, targetLean, 10 * dt);
 		renderPitch = pitchAngle;
+	} else if (state === "punch_1" || state === "punch_2") {
+		// Slight forward lean as the body shifts weight into the punch.
+		pitchAngle = lerpToward(pitchAngle, -0.12, 14 * dt);
+		renderPitch = pitchAngle;
+	} else if (state === "kick") {
+		// Kick reads as a slight back-lean (counter-balance for raised leg).
+		pitchAngle = lerpToward(pitchAngle, 0.08, 14 * dt);
+		renderPitch = pitchAngle;
 	} else if (state === "crouch_slide") {
 		// Butt slide: torso upright with a small back-lean, legs folded under.
 		// M64 source of long jump. Pose reads as "sitting and gliding" rather
@@ -232,6 +240,22 @@ function easeInOutSine(t: number): number {
 	return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
+// Punch/kick extension envelope: ramp 0→1 over startup half of active phase,
+// hold 1 through the rest of active, ramp 1→0 over recovery. Reads as
+// "wind up, snap, retract" without any baked animation.
+function punchExtension(
+	stateTime: number,
+	activeSec: number,
+	totalSec: number,
+): number {
+	if (stateTime >= totalSec) return 0;
+	const ramp = activeSec * 0.5;
+	if (stateTime < ramp) return stateTime / ramp;
+	if (stateTime < activeSec) return 1;
+	const r = (stateTime - activeSec) / Math.max(0.001, totalSec - activeSec);
+	return 1 - r;
+}
+
 // Minimum scale.y during landing recovery. Heavier moves crunch deeper.
 function landingDepth(variant: MoveVariant): number {
 	switch (variant) {
@@ -250,6 +274,8 @@ function landingDepth(variant: MoveVariant): number {
 			return 0.85;
 		case "single":
 			return 0.95;
+		case "punch":
+			return 0.97; // negligible — punches don't land, they recover
 	}
 }
 
@@ -281,7 +307,10 @@ function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
 		state === "stomach_slide" ||
 		state === "ledge_climb_fast" ||
 		state === "ledge_climb_slow" ||
-		state === "ledge_climb_down"
+		state === "ledge_climb_down" ||
+		state === "punch_1" ||
+		state === "punch_2" ||
+		state === "kick"
 	) {
 		return false;
 	}
@@ -474,6 +503,42 @@ export function computeLimbs(input: LimbInput): LimbTargets {
 			armR.set(0.55, 0.2, 0);
 			footL.set(-0.18, footY, -0.2);
 			footR.set(0.18, footY, -0.2);
+			break;
+		}
+		case "punch_1": {
+			// Right-hand jab. Arm extends forward during active phase, retracts
+			// during recovery. Active fraction = stateTime / activeMs/1000;
+			// after that, ext linearly retracts.
+			const activeSec = config.punch1ActiveMs / 1000;
+			const totalSec = activeSec + config.punch1RecoveryMs / 1000;
+			const ext = punchExtension(stateTime, activeSec, totalSec);
+			armR.set(0.15 + ext * 0.08, 0.25, -0.2 - ext * 0.45); // right fist forward
+			armL.set(-0.4, 0.18, 0.15); // left arm pulled back, guard
+			footL.set(-0.18, footY, 0.05);
+			footR.set(0.18, footY, -0.1);
+			break;
+		}
+		case "punch_2": {
+			// Mirror of punch_1: left-hand jab.
+			const activeSec = config.punch2ActiveMs / 1000;
+			const totalSec = activeSec + config.punch2RecoveryMs / 1000;
+			const ext = punchExtension(stateTime, activeSec, totalSec);
+			armL.set(-0.15 - ext * 0.08, 0.25, -0.2 - ext * 0.45);
+			armR.set(0.4, 0.18, 0.15);
+			footL.set(-0.18, footY, -0.1);
+			footR.set(0.18, footY, 0.05);
+			break;
+		}
+		case "kick": {
+			// Right kick: leg snaps forward + up during active, retracts on
+			// recovery. Arms stay slightly out for counter-balance.
+			const activeSec = config.kickActiveMs / 1000;
+			const totalSec = activeSec + config.kickRecoveryMs / 1000;
+			const ext = punchExtension(stateTime, activeSec, totalSec);
+			footR.set(0.1, footY + ext * 0.45, -0.15 - ext * 0.45);
+			footL.set(-0.18, footY, 0.1);
+			armL.set(-0.45, 0.2, 0.1);
+			armR.set(0.5, 0.15, 0.18);
 			break;
 		}
 		case "airborne": {

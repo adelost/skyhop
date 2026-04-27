@@ -95,6 +95,25 @@ export const config = $state({
 	groundPoundImpactSquashMs: 220,
 	diveVelY: 0,
 	diveVelXZ: 14.4,
+	// Threshold for action-button kick-vs-dive split. M64 act_jump_kick check:
+	// `forwardVel > 28.0f` → ACT_DIVE, else ACT_JUMP_KICK. 28 u/f = 8.4 m/s.
+	// Same threshold drives ground-dive vs punch-combo.
+	diveSpeedThreshold: 8.4,
+
+	// Punch combo (M64 act_punching / act_move_punching / mario_update_punch_sequence).
+	// Three-hit sequence: punch1 → punch2 → kick, each entered by re-tapping action
+	// inside the combo window after the active phase. Outside the window, action
+	// starts a fresh punch1. Entry caps forward velocity (M64 caps at 6 u/f for
+	// moving punch); during the move XZ decays slowly and facing is locked.
+	punch1ActiveMs: 200, // hand extends, "active hit" window
+	punch1RecoveryMs: 167, // retract — combo input must arrive before this ends
+	punch2ActiveMs: 200,
+	punch2RecoveryMs: 167,
+	kickActiveMs: 233, // M64 kick is the longest of the three
+	kickRecoveryMs: 200,
+	punchEntryVelCap: 1.8, // m/s — M64 ACT_MOVE_PUNCHING fVel cap = 6 u/f = 1.8 m/s
+	punchDecel: 6, // m/s² — XZ decay during punch states
+	landPunchMs: 80,
 
 	// Camera. M64-tuned: authentic Lakitu feel. Speed-boost off by default so
 	// the camera doesn't "breathe" when moving; look-ahead is subtle.
