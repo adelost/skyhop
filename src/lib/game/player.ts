@@ -39,7 +39,9 @@ export type PlayerState =
 	// Re-tapping action inside each state's recovery window chains forward.
 	| "punch_1"
 	| "punch_2"
-	| "kick";
+	| "kick"
+	// M64 act_crawling: Z held + analog tilt at low speed.
+	| "crawl";
 
 // Latched at takeoff/trigger, cleared on touchdown (snapshotted into
 // landingStyle). Drives per-move landing recovery so single/double/triple/
@@ -329,10 +331,6 @@ export class Player {
 		const mx = input.moveX * cy + input.moveZ * sy;
 		const mz = -input.moveX * sy + input.moveZ * cy;
 
-		const speedTarget = config.moveSpeed;
-		const targetX = mx * speedTarget;
-		const targetZ = mz * speedTarget;
-
 		const hasInput = Math.abs(mx) > 0.01 || Math.abs(mz) > 0.01;
 		const onIce = this.surface === "ice";
 
@@ -353,6 +351,22 @@ export class Player {
 			input.crouchPressed &&
 			Math.hypot(this.velocity.x, this.velocity.z) > 4 &&
 			this.state !== "crouch_slide";
+
+		// Crouch + analog tilt at low ground speed → crawl. Loses to crouch_slide
+		// at higher speeds (M64 same: butt-slide overrides crawl when running).
+		const wantsCrawl =
+			this.grounded &&
+			input.crouchHeld &&
+			hasInput &&
+			Math.hypot(this.velocity.x, this.velocity.z) < 4 &&
+			!slopeTooSteep &&
+			!wantsCrouchSlide &&
+			!wantsDashSlide &&
+			this.state !== "stomach_slide" &&
+			this.state !== "skid" &&
+			this.state !== "punch_1" &&
+			this.state !== "punch_2" &&
+			this.state !== "kick";
 
 		// Update state based on grounded context.
 		if (this.grounded) {
@@ -375,10 +389,20 @@ export class Player {
 			} else if (this.state === "skid") {
 				this.skidT += dt;
 				if (this.skidT >= config.skidDurationMs / 1000) this.state = "grounded";
+			} else if (this.state === "crawl" || wantsCrawl) {
+				// Stays in crawl as long as Z + analog held; otherwise back to idle.
+				this.state =
+					input.crouchHeld && hasInput ? "crawl" : "grounded";
 			} else {
 				this.state = "grounded";
 			}
 		}
+
+		// speedTarget depends on final state — crawl uses its own slow target.
+		const speedTarget =
+			this.state === "crawl" ? config.crawlSpeed : config.moveSpeed;
+		const targetX = mx * speedTarget;
+		const targetZ = mz * speedTarget;
 
 		// Horizontal accel/decel. Locked states keep their momentum.
 		const momentumLocked =
@@ -399,9 +423,13 @@ export class Player {
 			this.state === "kick";
 
 		let groundRate: number;
-		if (hasInput)
+		if (this.state === "crawl") {
+			groundRate = config.crawlAccel;
+		} else if (hasInput) {
 			groundRate = onIce ? config.accel * config.iceFriction : config.accel;
-		else groundRate = onIce ? config.decel * config.iceFriction : config.decel;
+		} else {
+			groundRate = onIce ? config.decel * config.iceFriction : config.decel;
+		}
 		const accelRate = this.grounded
 			? groundRate
 			: config.accel * config.airControl;

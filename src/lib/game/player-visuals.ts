@@ -153,6 +153,11 @@ export function computePose(input: PoseInput): PoseOutput {
 		// Kick reads as a slight back-lean (counter-balance for raised leg).
 		pitchAngle = lerpToward(pitchAngle, 0.08, 14 * dt);
 		renderPitch = pitchAngle;
+	} else if (state === "crawl") {
+		// Crawl: body horizontal, head leading, low to ground. M64 quadruped pose.
+		pitchAngle = lerpToward(pitchAngle, -0.4, 10 * dt);
+		renderPitch = pitchAngle;
+		targetScaleY = 0.45;
 	} else if (state === "crouch_slide") {
 		// Butt slide: torso upright with a small back-lean, legs folded under.
 		// M64 source of long jump. Pose reads as "sitting and gliding" rather
@@ -205,7 +210,8 @@ export function computePose(input: PoseInput): PoseOutput {
 		recentlyGrounded &&
 		state !== "crouch_slide" &&
 		state !== "stomach_slide" &&
-		state !== "slope_slide"
+		state !== "slope_slide" &&
+		state !== "crawl"
 	) {
 		targetScaleY = 0.55;
 	}
@@ -539,6 +545,20 @@ export function computeLimbs(input: LimbInput): LimbTargets {
 			footL.set(-0.18, footY, 0.1);
 			armL.set(-0.45, 0.2, 0.1);
 			armR.set(0.5, 0.15, 0.18);
+			break;
+		}
+		case "crawl": {
+			// Quadruped: arms forward + down, feet behind, alternating gait.
+			// Anti-phase: left arm + right foot lead, then right arm + left foot.
+			// Frequency scales with speed so animation stays in sync with motion.
+			const intensity = Math.min(1, horizSpeed / 2);
+			const freq = 4 + intensity * 2; // 4-6 Hz at full crawl
+			const phase = Math.sin(accumTime * freq);
+			const swing = 0.18 * intensity;
+			armL.set(-0.25, -0.05 + Math.max(0, phase) * 0.08, -0.3 - phase * swing);
+			armR.set(0.25, -0.05 + Math.max(0, -phase) * 0.08, -0.3 + phase * swing);
+			footL.set(-0.18, footY + 0.05, 0.18 + phase * swing);
+			footR.set(0.18, footY + 0.05, 0.18 - phase * swing);
 			break;
 		}
 		case "airborne": {

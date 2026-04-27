@@ -115,6 +115,13 @@ export const config = $state({
 	punchDecel: 6, // m/s² — XZ decay during punch states
 	landPunchMs: 80,
 
+	// Crawl (M64 act_crawling). Z held + analog tilt at low speed. Slow,
+	// low-profile locomotion that can squeeze through low passages. M64
+	// crawl moves at ~6 u/f = 1.8 m/s; we round to 2.0 for slightly more
+	// responsive feel without breaking M64 character.
+	crawlSpeed: 2.0,
+	crawlAccel: 15,
+
 	// Camera. M64-tuned: authentic Lakitu feel. Speed-boost off by default so
 	// the camera doesn't "breathe" when moving; look-ahead is subtle.
 	camYawSensitivity: 0.006,
