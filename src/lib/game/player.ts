@@ -41,7 +41,10 @@ export type PlayerState =
 	| "punch_2"
 	| "kick"
 	// M64 act_crawling: Z held + analog tilt at low speed.
-	| "crawl";
+	| "crawl"
+	// M64 sweep kick (mario_update_punch_sequence case 9): Z + B → 360° leg sweep
+	// from a hands-on-ground breakdance pose, frozen in place.
+	| "sweep_kick";
 
 // Latched at takeoff/trigger, cleared on touchdown (snapshotted into
 // landingStyle). Drives per-move landing recovery so single/double/triple/
@@ -56,7 +59,8 @@ export type MoveVariant =
 	| "dive"
 	| "wall_kick"
 	| "ground_pound"
-	| "punch";
+	| "punch"
+	| "sweep_kick";
 
 export type DebugInfo = {
 	state: PlayerState;
@@ -128,6 +132,9 @@ export class Player {
 	// to a hit before chaining the next one), and rejected after recovery
 	// closes (so the swing returns to idle cleanly).
 	private punchT = 0;
+	// Sweep kick timer (seconds inside sweep_kick state). Drives auto-exit
+	// and the 360° yaw spin curve.
+	private sweepT = 0;
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
 	private groundPoundStartT = 0;
@@ -290,6 +297,7 @@ export class Player {
 		this.landingSquashT = 0;
 		this.groundPoundStartT = 0;
 		this.punchT = 0;
+		this.sweepT = 0;
 		this.state = "airborne";
 	}
 
@@ -420,7 +428,9 @@ export class Player {
 			// Punch states freeze player input — XZ decay handled in punch handler.
 			this.state === "punch_1" ||
 			this.state === "punch_2" ||
-			this.state === "kick";
+			this.state === "kick" ||
+			// Sweep kick: locked in place, only yaw spins.
+			this.state === "sweep_kick";
 
 		let groundRate: number;
 		if (this.state === "crawl") {
@@ -523,6 +533,25 @@ export class Player {
 				this.moveVariant = null;
 			}
 		}
+		// Sweep kick tick: frozen XZ, ticks timer, auto-exits at end. Yaw spin
+		// is driven from sweepT in computePose.
+		if (this.state === "sweep_kick") {
+			this.sweepT += dt;
+			this.velocity.x = 0;
+			this.velocity.z = 0;
+			const total =
+				(config.sweepStartupMs +
+					config.sweepActiveMs +
+					config.sweepRecoveryMs) /
+				1000;
+			if (this.sweepT >= total) {
+				this.state = "grounded";
+				this.sweepT = 0;
+				this.landingStyle = "sweep_kick";
+				this.landingStyleT = config.landSweepMs / 1000;
+				this.moveVariant = null;
+			}
+		}
 
 		this.timeSinceGrounded += dt;
 		if (this.grounded) {
@@ -581,7 +610,12 @@ export class Player {
 				this.state === "punch_2" ||
 				this.state === "kick";
 			if (input.crouchHeld) {
-				// sweep_kick wires here in Phase 3
+				// Z + action grounded → sweep kick. Allowed from idle crouch,
+				// crawl, and even mid-punch (cancel into sweep).
+				if (this.state !== "sweep_kick") {
+					this.executeSweepKick();
+					haptic(15);
+				}
 			} else if (horizSpeed >= config.diveSpeedThreshold && !inPunchState) {
 				// Ground dive: run + B. Mirrors aerial dive impulse but launches us
 				// off the ground so existing dive→stomach_slide landing path runs.
@@ -1187,6 +1221,17 @@ export class Player {
 		this.setFacing(this.facingYaw);
 	}
 
+	private executeSweepKick(): void {
+		this.velocity.x = 0;
+		this.velocity.z = 0;
+		this.state = "sweep_kick";
+		this.sweepT = 0;
+		this.moveVariant = "sweep_kick";
+		// Cancel any pending punch chain.
+		this.punchT = 0;
+		this.setFacing(this.facingYaw);
+	}
+
 	/**
 	 * Snapshot body position after a physics step. Engine calls this once per
 	 * fixed step (after physics.world.step()). Rotates prev←curr, curr←body.
@@ -1327,6 +1372,7 @@ export class Player {
 			this.state === "punch_1" ||
 			this.state === "punch_2" ||
 			this.state === "kick" ||
+			this.state === "sweep_kick" ||
 			(this.state === "airborne" && this.jumpChain === 3)
 		);
 	}
@@ -1403,5 +1449,7 @@ function landingDurationFor(variant: MoveVariant): number {
 			return config.landGroundPoundMs / 1000;
 		case "punch":
 			return config.landPunchMs / 1000;
+		case "sweep_kick":
+			return config.landSweepMs / 1000;
 	}
 }

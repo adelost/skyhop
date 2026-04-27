@@ -158,6 +158,18 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = lerpToward(pitchAngle, -0.4, 10 * dt);
 		renderPitch = pitchAngle;
 		targetScaleY = 0.45;
+	} else if (state === "sweep_kick") {
+		// Hands-on-ground breakdance pose with full 360° body spin (CCW from
+		// above, matching M64 sweep direction). Spin runs over startup +
+		// active so it concludes before the recovery retraction.
+		const spinDur =
+			(config.sweepStartupMs + config.sweepActiveMs) / 1000;
+		const t = Math.min(1, input.stateTime / spinDur);
+		const spin = easeInOutSine(t) * Math.PI * 2;
+		renderYaw = newFacingYaw + spin;
+		pitchAngle = lerpToward(pitchAngle, 0.3, 14 * dt);
+		renderPitch = pitchAngle;
+		targetScaleY = 0.4;
 	} else if (state === "crouch_slide") {
 		// Butt slide: torso upright with a small back-lean, legs folded under.
 		// M64 source of long jump. Pose reads as "sitting and gliding" rather
@@ -211,7 +223,8 @@ export function computePose(input: PoseInput): PoseOutput {
 		state !== "crouch_slide" &&
 		state !== "stomach_slide" &&
 		state !== "slope_slide" &&
-		state !== "crawl"
+		state !== "crawl" &&
+		state !== "sweep_kick"
 	) {
 		targetScaleY = 0.55;
 	}
@@ -282,6 +295,8 @@ function landingDepth(variant: MoveVariant): number {
 			return 0.95;
 		case "punch":
 			return 0.97; // negligible — punches don't land, they recover
+		case "sweep_kick":
+			return 0.5; // crouch-deep recovery
 	}
 }
 
@@ -316,7 +331,8 @@ function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
 		state === "ledge_climb_down" ||
 		state === "punch_1" ||
 		state === "punch_2" ||
-		state === "kick"
+		state === "kick" ||
+		state === "sweep_kick"
 	) {
 		return false;
 	}
@@ -559,6 +575,27 @@ export function computeLimbs(input: LimbInput): LimbTargets {
 			armR.set(0.25, -0.05 + Math.max(0, -phase) * 0.08, -0.3 + phase * swing);
 			footL.set(-0.18, footY + 0.05, 0.18 + phase * swing);
 			footR.set(0.18, footY + 0.05, 0.18 - phase * swing);
+			break;
+		}
+		case "sweep_kick": {
+			// Breakdance pose: hands planted on ground, leg extended for the sweep.
+			// Phase envelope: ramp up across startup, hold across active, ramp down
+			// across recovery. ext drives leg extension and arm-press depth.
+			const startup = config.sweepStartupMs / 1000;
+			const active = config.sweepActiveMs / 1000;
+			const total = startup + active + config.sweepRecoveryMs / 1000;
+			let ext: number;
+			if (stateTime < startup) ext = stateTime / startup;
+			else if (stateTime < startup + active) ext = 1;
+			else if (stateTime < total)
+				ext = 1 - (stateTime - startup - active) / (total - startup - active);
+			else ext = 0;
+			// Arms press into ground in front of the body
+			armL.set(-0.32, -0.2 - ext * 0.1, -0.25);
+			armR.set(0.32, -0.2 - ext * 0.1, -0.25);
+			// Right leg sweeps out wide and forward; left tucked as anchor
+			footR.set(0.15 + ext * 0.5, footY + ext * 0.08, -0.1 - ext * 0.4);
+			footL.set(-0.15, footY + 0.05, 0.15);
 			break;
 		}
 		case "airborne": {

@@ -122,6 +122,14 @@ export const config = $state({
 	crawlSpeed: 2.0,
 	crawlAccel: 15,
 
+	// Sweep kick / breakdance (M64 mario_update_punch_sequence case 9, set on
+	// Z + B from the crouch). Mario plants hands and sweeps a leg in a
+	// horizontal 360° spin. Frozen XZ — pure rotation in place.
+	sweepStartupMs: 67,
+	sweepActiveMs: 200,
+	sweepRecoveryMs: 133,
+	landSweepMs: 100,
+
 	// Camera. M64-tuned: authentic Lakitu feel. Speed-boost off by default so
 	// the camera doesn't "breathe" when moving; look-ahead is subtle.
 	camYawSensitivity: 0.006,
