@@ -44,7 +44,9 @@ export type PlayerState =
 	| "crawl"
 	// M64 sweep kick (mario_update_punch_sequence case 9): Z + B → 360° leg sweep
 	// from a hands-on-ground breakdance pose, frozen in place.
-	| "sweep_kick";
+	| "sweep_kick"
+	// M64 act_jump_kick: B in air at low forward speed → leg-out air kick.
+	| "aerial_kick";
 
 // Latched at takeoff/trigger, cleared on touchdown (snapshotted into
 // landingStyle). Drives per-move landing recovery so single/double/triple/
@@ -60,7 +62,8 @@ export type MoveVariant =
 	| "wall_kick"
 	| "ground_pound"
 	| "punch"
-	| "sweep_kick";
+	| "sweep_kick"
+	| "aerial_kick";
 
 export type DebugInfo = {
 	state: PlayerState;
@@ -135,6 +138,10 @@ export class Player {
 	// Sweep kick timer (seconds inside sweep_kick state). Drives auto-exit
 	// and the 360° yaw spin curve.
 	private sweepT = 0;
+	// Aerial kick timer (seconds inside aerial_kick state). Hard cap so the
+	// kick pose doesn't persist across long falls — after cap, state returns
+	// to airborne so wall_kick / ledge_grab can resume.
+	private aerialKickT = 0;
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
 	private groundPoundStartT = 0;
@@ -298,6 +305,7 @@ export class Player {
 		this.groundPoundStartT = 0;
 		this.punchT = 0;
 		this.sweepT = 0;
+		this.aerialKickT = 0;
 		this.state = "airborne";
 	}
 
@@ -420,7 +428,8 @@ export class Player {
 					this.state === "side_flip" ||
 					this.state === "dive" ||
 					this.state === "ground_pound_start" ||
-					this.state === "ground_pound")) ||
+					this.state === "ground_pound" ||
+					this.state === "aerial_kick")) ||
 			this.state === "slope_slide" ||
 			this.state === "crouch_slide" ||
 			this.state === "stomach_slide" ||
@@ -552,6 +561,19 @@ export class Player {
 				this.moveVariant = null;
 			}
 		}
+		// Aerial kick tick: gravity drives the body normally, the kick is just
+		// a state lock with a duration cap. Landing handler clears state and
+		// snapshots landingStyle separately.
+		if (this.state === "aerial_kick") {
+			this.aerialKickT += dt;
+			if (this.aerialKickT >= config.aerialKickDurationMs / 1000) {
+				this.state = "airborne";
+				this.aerialKickT = 0;
+				// Keep moveVariant so landingStyle still latches as aerial_kick.
+			}
+		} else {
+			this.aerialKickT = 0;
+		}
 
 		this.timeSinceGrounded += dt;
 		if (this.grounded) {
@@ -637,16 +659,22 @@ export class Player {
 			}
 		}
 
-		// Aerial actions (ground pound / dive)
+		// Aerial actions (ground pound / dive / aerial kick). M64 mapping:
+		//   Z (crouch press)                 → ground pound
+		//   B (action) + speed ≥ threshold   → dive
+		//   B (action) + speed < threshold   → aerial kick
 		if (
 			!this.grounded &&
 			this.state !== "ground_pound_start" &&
 			this.state !== "ground_pound" &&
-			this.state !== "dive"
+			this.state !== "dive" &&
+			this.state !== "aerial_kick"
 		) {
-			const triggerGP =
-				input.crouchPressed || (input.actionPressed && horizSpeed < 2.5);
-			const triggerDive = input.actionPressed && horizSpeed >= 2.5;
+			const triggerGP = input.crouchPressed;
+			const triggerDive =
+				input.actionPressed && horizSpeed >= config.diveSpeedThreshold;
+			const triggerAerialKick =
+				input.actionPressed && horizSpeed < config.diveSpeedThreshold;
 			if (triggerGP) {
 				this.velocity.x *= 0.18;
 				this.velocity.z *= 0.18;
@@ -663,6 +691,9 @@ export class Player {
 			} else if (triggerDive) {
 				this.executeDive(horizSpeed, mx, mz, false);
 				haptic(15);
+			} else if (triggerAerialKick) {
+				this.executeAerialKick();
+				haptic(12);
 			}
 		}
 
@@ -1232,6 +1263,18 @@ export class Player {
 		this.setFacing(this.facingYaw);
 	}
 
+	private executeAerialKick(): void {
+		// M64 act_jump_kick: forward velocity loses ~1 u/f on entry. Approximate
+		// with a 0.95 multiplier (3 u/f → 2.85 u/f; not material, just removes
+		// the perfect-conservation feel). Vertical velocity is preserved.
+		this.velocity.x *= 0.95;
+		this.velocity.z *= 0.95;
+		this.state = "aerial_kick";
+		this.aerialKickT = 0;
+		this.moveVariant = "aerial_kick";
+		this.setFacing(this.facingYaw);
+	}
+
 	/**
 	 * Snapshot body position after a physics step. Engine calls this once per
 	 * fixed step (after physics.world.step()). Rotates prev←curr, curr←body.
@@ -1373,6 +1416,7 @@ export class Player {
 			this.state === "punch_2" ||
 			this.state === "kick" ||
 			this.state === "sweep_kick" ||
+			this.state === "aerial_kick" ||
 			(this.state === "airborne" && this.jumpChain === 3)
 		);
 	}
@@ -1451,5 +1495,7 @@ function landingDurationFor(variant: MoveVariant): number {
 			return config.landPunchMs / 1000;
 		case "sweep_kick":
 			return config.landSweepMs / 1000;
+		case "aerial_kick":
+			return config.landAerialKickMs / 1000;
 	}
 }

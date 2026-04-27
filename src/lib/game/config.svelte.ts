@@ -130,6 +130,12 @@ export const config = $state({
 	sweepRecoveryMs: 133,
 	landSweepMs: 100,
 
+	// Aerial kick (M64 act_jump_kick). Press B in air at low forward speed for
+	// a leg-out spin kick; high speed routes to dive instead. Animation runs
+	// to a hard cap or until landing, whichever comes first.
+	aerialKickDurationMs: 300,
+	landAerialKickMs: 120,
+
 	// Camera. M64-tuned: authentic Lakitu feel. Speed-boost off by default so
 	// the camera doesn't "breathe" when moving; look-ahead is subtle.
 	camYawSensitivity: 0.006,

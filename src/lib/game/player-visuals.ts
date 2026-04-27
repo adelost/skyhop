@@ -158,6 +158,11 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = lerpToward(pitchAngle, -0.4, 10 * dt);
 		renderPitch = pitchAngle;
 		targetScaleY = 0.45;
+	} else if (state === "aerial_kick") {
+		// Upright in air with leg cocked. Distinct from dive (face-down) and
+		// ground pound (forward-tumble); reads as a clean spin kick.
+		pitchAngle = lerpToward(pitchAngle, 0, 12 * dt);
+		renderPitch = pitchAngle;
 	} else if (state === "sweep_kick") {
 		// Hands-on-ground breakdance pose with full 360° body spin (CCW from
 		// above, matching M64 sweep direction). Spin runs over startup +
@@ -297,6 +302,8 @@ function landingDepth(variant: MoveVariant): number {
 			return 0.97; // negligible — punches don't land, they recover
 		case "sweep_kick":
 			return 0.5; // crouch-deep recovery
+		case "aerial_kick":
+			return 0.85; // light recovery, similar to wall_kick
 	}
 }
 
@@ -332,7 +339,8 @@ function shouldRotateFacing(state: PlayerState, jumpChain: number): boolean {
 		state === "punch_1" ||
 		state === "punch_2" ||
 		state === "kick" ||
-		state === "sweep_kick"
+		state === "sweep_kick" ||
+		state === "aerial_kick"
 	) {
 		return false;
 	}
@@ -575,6 +583,18 @@ export function computeLimbs(input: LimbInput): LimbTargets {
 			armR.set(0.25, -0.05 + Math.max(0, -phase) * 0.08, -0.3 + phase * swing);
 			footL.set(-0.18, footY + 0.05, 0.18 + phase * swing);
 			footR.set(0.18, footY + 0.05, 0.18 - phase * swing);
+			break;
+		}
+		case "aerial_kick": {
+			// Spin kick: right leg out front and slightly up, left leg tucked
+			// near the body, arms spread for counter-rotation. Phase ramps the
+			// extension in over the first 100ms of stateTime so the kick
+			// reads as "snap" rather than already extended at trigger.
+			const ext = Math.min(1, stateTime / 0.1);
+			footR.set(0.05, footY + 0.15 + ext * 0.2, -0.15 - ext * 0.45);
+			footL.set(-0.12, footY - 0.05, 0.1);
+			armL.set(-0.45, 0.25, 0.05);
+			armR.set(0.45, 0.25, 0.15);
 			break;
 		}
 		case "sweep_kick": {
