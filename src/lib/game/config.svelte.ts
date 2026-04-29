@@ -64,6 +64,11 @@ export const config = $state({
 	sideFlipRotationDuration: 0.5,
 	sideFlipBodyLeanDeg: 20,
 	sideFlipArmSpinRate: 4, // arm windmill cycles per second
+	// Pirouette around vertical axis layered on top of the cartwheel + 180° flip.
+	// M64's MARIO_ANIM_SLIDEFLIP drives this dynamically via skeletal anim; we
+	// reproduce it as a yaw-spin that decays over the first half of the move so
+	// the body reads as "spinning" rather than statically flipped.
+	sideFlipYawSpinRate: 8,
 	// Shimmy hand cycle: alternating release/re-grab while moving along ledge.
 	shimmyHandCycleHz: 2,
 	shimmyHandLift: 0.18,
