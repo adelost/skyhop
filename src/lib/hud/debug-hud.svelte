@@ -41,6 +41,10 @@
 	<div class="row"><span class="k">slope</span> <span class="v">{info.slopeAngleDeg.toFixed(1)}°</span></div>
 	<div class="row"><span class="k">grnd</span> <span class="v">{info.grounded ? '✓' : '—'}</span></div>
 	<div class="row"><span class="k">fps</span> <span class="v">{info.fps}</span></div>
+	<div class="row build">
+		<span class="k">build</span>
+		<span class="v">{__BUILD_SHA__} {__BUILD_TIME__.slice(5, 16).replace('T', ' ')}</span>
+	</div>
 </div>
 
 <style>
