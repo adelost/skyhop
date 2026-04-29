@@ -95,24 +95,13 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = easeInOutSine(t) * (Math.PI * 2);
 		renderPitch = pitchAngle;
 	} else if (state === "side_flip") {
-		// M64 ACT_SIDE_FLIP (mario_actions_airborne.c:608) flips render yaw
-		// 180° (gfx.angle[1] += 0x8000). M64 then drives the spin via the
-		// MARIO_ANIM_SLIDEFLIP skeletal animation, which we don't have. Layer
-		// three things to recreate the look: cartwheel roll, decaying pirouette
-		// over the first half, small forward lean. Without the pirouette the
-		// 180° flip reads as a static turn instead of a side volt.
-		const leanTarget = (config.sideFlipBodyLeanDeg * Math.PI) / 180;
-		pitchAngle = lerpToward(pitchAngle, leanTarget, 10 * dt);
+		// Linear continuous forward somersault (12 rad/s). The earlier M64-
+		// source-faithful approach (180° yaw flip + cartwheel roll + pirouette)
+		// was overengineered without skeletal anim. This simple rate-based
+		// tumble reads naturally as a side flip — Mattias's preferred feel
+		// from the 94a5b74 era.
+		pitchAngle -= 12 * dt;
 		renderPitch = pitchAngle;
-		const dur = Math.max(0.001, config.sideFlipRotationDuration);
-		const t = Math.min(1, input.stateTime / dur);
-		// Cartwheel direction: Mattias caught CCW reading as wrong-way; flip to
-		// CW (positive Z roll) so the body rolls "into" the new face direction
-		// instead of away from it.
-		renderRoll = easeInOutSine(t) * (Math.PI * 2);
-		const spinFrac = Math.max(0, 1 - t * 2);
-		yawSpin += config.sideFlipYawSpinRate * dt * spinFrac;
-		renderYaw = newFacingYaw + Math.PI + yawSpin;
 	} else if (state === "ground_pound_start") {
 		// M64: one full forward somersault over the startup window, then the
 		// code below lerps back to upright for the slam. Rate is 2π / startupSec
