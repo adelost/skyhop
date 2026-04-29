@@ -95,17 +95,19 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = easeInOutSine(t) * (Math.PI * 2);
 		renderPitch = pitchAngle;
 	} else if (state === "side_flip") {
-		// M64 ACT_SIDE_FLIP (mario_actions_airborne.c:608):
-		//   gfx.angle[1] += 0x8000   — render yaw flipped 180° from physics
-		// The body in MARIO_ANIM_SLIDEFLIP stays mostly upright; arms
-		// windmill and legs arc. Without skeletal anim we recreate the
-		// body attitude here (small lean, not a full rotation) and let
-		// computeLimbs drive the windmill/arc choreography.
+		// M64 ACT_SIDE_FLIP (mario_actions_airborne.c:608) flips render yaw
+		// 180° (gfx.angle[1] += 0x8000). Without skeletal anim the literal
+		// yaw-flip alone reads as a turn, not a flip — players expect a
+		// visible cartwheel. Add a phase-eased sideways roll so the move
+		// reads as a side volt; the M64 yaw flip + lean + limb windmill
+		// stay on top.
 		const leanTarget = (config.sideFlipBodyLeanDeg * Math.PI) / 180;
 		pitchAngle = lerpToward(pitchAngle, leanTarget, 10 * dt);
 		renderPitch = pitchAngle;
 		renderYaw = newFacingYaw + Math.PI;
-		renderRoll = 0;
+		const dur = Math.max(0.001, config.sideFlipRotationDuration);
+		const t = Math.min(1, input.stateTime / dur);
+		renderRoll = easeInOutSine(t) * -(Math.PI * 2);
 	} else if (state === "ground_pound_start") {
 		// M64: one full forward somersault over the startup window, then the
 		// code below lerps back to upright for the slam. Rate is 2π / startupSec
