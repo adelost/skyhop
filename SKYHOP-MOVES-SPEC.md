@@ -6,7 +6,7 @@ Spec-first review document for the SM64-fidelity pass. Sources:
   ordering, and architecture recommendations (renderRoll, landingStyle,
   stateTime, moveVariant, phase-vs-rate).
 - **Explore-agent research** (this session) for raw `file:line` refs in both
-  `/tmp/sm64/src/game/` and `/home/adelost/lsrc/skyhop/src/lib/game/`.
+  `~/lsrc/sm64-decomp/src/game/` and `/home/adelost/lsrc/skyhop/src/lib/game/`.
 - Already-shipped fixes (commits referenced inline) marked **DELIVERED**.
   Open items marked **TODO**.
 
@@ -74,7 +74,7 @@ FX:          SM64:    SOUND_ACTION_TERRAIN_JUMP (airborne.c:455)
              SKYHOP:  consumeLandEvent → dustPool.emit(pos, 5, 2, 1.5)
                       engine.ts:219-221 (vy < -5 only)
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:446
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:446
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-jumps.ts:119
 ```
 
@@ -119,7 +119,7 @@ FX:          SM64:    SOUND_ACTION_TERRAIN_JUMP + SOUND_MARIO_HOOHOO
                       mario_actions_airborne.c:474
              SKYHOP:  Same shared dust event.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:457
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:457
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-jumps.ts:98
 ```
 
@@ -163,7 +163,7 @@ FX:          SM64:    SOUND_ACTION_TERRAIN_JUMP + SOUND_MARIO_YAHOO (JP only)
                       mario_actions_airborne.c:494-497
              SKYHOP:  Shared dust on land.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:480
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:480
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-jumps.ts:100
 ```
 
@@ -209,7 +209,7 @@ FX:          SM64:    SOUND_ACTION_TERRAIN_JUMP + SOUND_MARIO_YAH_WAH_HOO
                       mario_actions_airborne.c:514
              SKYHOP:  Shared dust on land.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:509
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:509
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-jumps.ts:65
 ```
 
@@ -258,7 +258,7 @@ FX:          SM64:    SOUND_ACTION_TERRAIN_JUMP + SOUND_ACTION_SIDE_FLIP_UNK
                       airborne.c:604, 613
              SKYHOP:  Shared dust on land.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:606
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:606
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-visuals.ts:80
 ```
 
@@ -308,7 +308,7 @@ FX:          SM64:    SOUND_ACTION_TERRAIN_JUMP + SOUND_MARIO_YAHOO
                       mario_actions_airborne.c:640
              SKYHOP:  Shared dust on land.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:634
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:634
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-jumps.ts:51
 ```
 
@@ -362,7 +362,7 @@ FX:          SM64:    SOUND_ACTION_THROW + SOUND_MARIO_HOOHOO on entry
                       PARTICLE_MIST_CIRCLE on head-stuck land
              SKYHOP:  Generic land dust only.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:732
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:732
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player-visuals.ts:74
 ```
 
@@ -421,7 +421,7 @@ FX:          SM64:    SOUND_ACTION_THROW (entry), SOUND_ACTION_SPIN (spin),
                       SOUND_ACTION_TERRAIN_HEAVY_LANDING (impact)
              SKYHOP:  haptic + dust + cam shake on impact.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:930
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:930
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:485
 ```
 
@@ -470,7 +470,7 @@ FX:          SM64:    play_mario_jump_sound (airborne.c:627)
              SKYHOP:  haptic 20ms (player.ts:443). No FX.
              TODO:    Optional: vertical-star equivalent on hard contact.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_airborne.c:618
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_airborne.c:618
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:434
 ```
 
@@ -509,7 +509,7 @@ LANDING:     n/a (terminates via climb or drop)
 FX:          SM64:    SOUND_MARIO_WHOA on grab (mario_actions_automatic.c:591)
              SKYHOP:  haptic 30ms on grab (player.ts:631)
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_automatic.c:543
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_automatic.c:543
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:609
 ```
 
@@ -552,7 +552,7 @@ FX:          SM64:    SOUND_MARIO_UH2 on initiate
                       mario_actions_automatic.c:644, :649
              SKYHOP:  haptic 20ms on climb start (player.ts:785)
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_automatic.c:560
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_automatic.c:560
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:771
 ```
 
@@ -590,7 +590,7 @@ FX:          SM64:    SOUND_MARIO_EEUH at timer frame 10
                       mario_actions_automatic.c:612-613
              SKYHOP:  Same haptic as fast
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_automatic.c:616
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_automatic.c:616
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:771
 ```
 
@@ -627,7 +627,7 @@ LANDING:     Returns to ACT_LEDGE_GRAB at lower position
 FX:          SM64:    No specific (auto from anim).
              SKYHOP:  None
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_automatic.c:626
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_automatic.c:626
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:800
 ```
 
@@ -673,7 +673,7 @@ FX:          SM64:    PARTICLE_DUST per step (via common_slide_action)
              SKYHOP:  No dust during slide; only on hard landing afterward.
              TODO:    Continuous dust trail while sliding (low rate emit).
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_moving.c:1484
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_moving.c:1484
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:295
 ```
 
@@ -718,7 +718,7 @@ FX:          SM64:    PARTICLE_DUST + SOUND_MOVING_TERRAIN_SLIDE
                       engine.ts:222-224
              TODO:    Continuous dust during skid, not just on entry.
 
-DECOMP REF:  /tmp/sm64/src/game/mario_actions_moving.c:962
+DECOMP REF:  ~/lsrc/sm64-decomp/src/game/mario_actions_moving.c:962
 SKYHOP FILE: /home/adelost/lsrc/skyhop/src/lib/game/player.ts:374
 ```
 

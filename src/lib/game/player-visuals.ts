@@ -81,10 +81,10 @@ export function computePose(input: PoseInput): PoseOutput {
 		pitchAngle = lerpToward(pitchAngle, -Math.PI / 3, 10 * dt);
 		renderPitch = pitchAngle;
 	} else if (state === "dive") {
-		// M64 dive pitches gradually toward ~-60°, not full -90°. Full vertical
-		// reads as face-plant rather than superman dive. The lerp lets it settle
-		// there instead of snapping.
-		pitchAngle = lerpToward(pitchAngle, -Math.PI / 3, 12 * dt);
+		// M64 dive pitches faceAngle[0] toward roughly -120° (head fully past
+		// horizontal so Mario reads as face-down/superman). Skyhop was previously
+		// at -60° which read as a gentle lean. -2π/3 ≈ -120° matches M64.
+		pitchAngle = lerpToward(pitchAngle, -(Math.PI * 2) / 3, 12 * dt);
 		renderPitch = pitchAngle;
 	} else if (state === "backflip") {
 		// Phase-based backward somersault: easeInOutSine from 0 → +2π over
@@ -106,7 +106,10 @@ export function computePose(input: PoseInput): PoseOutput {
 		renderPitch = pitchAngle;
 		const dur = Math.max(0.001, config.sideFlipRotationDuration);
 		const t = Math.min(1, input.stateTime / dur);
-		renderRoll = easeInOutSine(t) * -(Math.PI * 2);
+		// Cartwheel direction: Mattias caught CCW reading as wrong-way; flip to
+		// CW (positive Z roll) so the body rolls "into" the new face direction
+		// instead of away from it.
+		renderRoll = easeInOutSine(t) * (Math.PI * 2);
 		const spinFrac = Math.max(0, 1 - t * 2);
 		yawSpin += config.sideFlipYawSpinRate * dt * spinFrac;
 		renderYaw = newFacingYaw + Math.PI + yawSpin;
