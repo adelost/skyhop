@@ -255,12 +255,11 @@
 	<div class="overlay error">error: {error}</div>
 {/if}
 
-	<div class="hud">
-		<div class="title">skyhop</div>
-		<a class="trainer-link" href="https://landningsvarv.pages.dev/">landing pattern</a>
-		<div class="hint">
-			WASD · space · shift duck/crawl · E punch/kick/dive · drag cam · wheel zoom · right-click lock · V 1st-person · C recenter · T · R
-		</div>
+<div class="hud">
+	<div class="title">skyhop</div>
+	<div class="hint">
+		WASD · space · shift duck/crawl · E punch/kick/dive · drag cam · wheel zoom · right-click lock · V 1st-person · C recenter · T · R
+	</div>
 </div>
 
 {#if game}
@@ -303,38 +302,24 @@
 	.overlay.error {
 		color: #ff8080;
 	}
-		.hud {
-			position: fixed;
-			top: env(safe-area-inset-top, 10px);
-			left: 12px;
-			color: #fff;
-			max-width: 60vw;
-		}
+	.hud {
+		position: fixed;
+		top: env(safe-area-inset-top, 10px);
+		left: 12px;
+		pointer-events: none;
+		color: #fff;
+		max-width: 60vw;
+	}
 	.title {
 		font-size: 20px;
 		font-weight: 700;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 	}
-		.hint {
-			font-size: 10px;
-			opacity: 0.7;
-			margin-top: 2px;
-		}
-		.trainer-link {
-			display: inline-flex;
-			margin-top: 6px;
-			border: 1px solid rgba(255, 255, 255, 0.28);
-			border-radius: 999px;
-			padding: 5px 9px;
-			background: rgba(10, 10, 26, 0.48);
-			color: #e7f8ff;
-			font-size: 12px;
-			font-weight: 700;
-			text-decoration: none;
-			text-transform: uppercase;
-			letter-spacing: 0.04em;
-			pointer-events: auto;
-		}
+	.hint {
+		font-size: 10px;
+		opacity: 0.7;
+		margin-top: 2px;
+	}
 	.touch-zone {
 		position: fixed;
 		bottom: 0;
