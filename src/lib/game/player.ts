@@ -29,41 +29,8 @@ export type PlayerState =
 	| "side_flip"
 	| "slope_slide"
 	| "crouch_slide"
-	| "stomach_slide"
 	| "skid"
-	| "ledge_hang"
-	| "ledge_climb_fast"
-	| "ledge_climb_slow"
-	| "ledge_climb_down"
-	// M64 punch combo (act_punching / act_move_punching / kick state).
-	// Re-tapping action inside each state's recovery window chains forward.
-	| "punch_1"
-	| "punch_2"
-	| "kick"
-	// M64 act_crawling: Z held + analog tilt at low speed.
-	| "crawl"
-	// M64 sweep kick (mario_update_punch_sequence case 9): Z + B → 360° leg sweep
-	// from a hands-on-ground breakdance pose, frozen in place.
-	| "sweep_kick"
-	// M64 act_jump_kick: B in air at low forward speed → leg-out air kick.
-	| "aerial_kick";
-
-// Latched at takeoff/trigger, cleared on touchdown (snapshotted into
-// landingStyle). Drives per-move landing recovery so single/double/triple/
-// dive/pound all read differently without extra state cases.
-export type MoveVariant =
-	| "single"
-	| "double"
-	| "triple"
-	| "backflip"
-	| "side_flip"
-	| "long_jump"
-	| "dive"
-	| "wall_kick"
-	| "ground_pound"
-	| "punch"
-	| "sweep_kick"
-	| "aerial_kick";
+	| "ledge_hang";
 
 export type DebugInfo = {
 	state: PlayerState;
@@ -111,10 +78,6 @@ export class Player {
 	private climbEnd = new THREE.Vector3();
 	private shimmyDir = 0; // -1, 0, or +1
 	private climbIntentT = 0;
-	// M64-style climb variants. Fast = A-press, Slow = forward-stick after
-	// minimum hang, Down = back-stick + crouch (descends to airborne below
-	// the ledge face). Drives per-variant duration and end-state.
-	private climbVariant: "fast" | "slow" | "down" = "slow";
 
 	private ledgePos: { x: number; y: number; z: number } | null = null;
 	// Actual wall normal at chest hit — captured during grab, used for shimmy.
@@ -130,32 +93,9 @@ export class Player {
 	private poundImpactPending = false;
 	private landImpactPending = false;
 	private skidStartPending = false;
-	// Punch combo timer (seconds inside current punch state). Combo input is
-	// accepted only after the active phase ends (so the player has to commit
-	// to a hit before chaining the next one), and rejected after recovery
-	// closes (so the swing returns to idle cleanly).
-	private punchT = 0;
-	// Sweep kick timer (seconds inside sweep_kick state). Drives auto-exit
-	// and the 360° yaw spin curve.
-	private sweepT = 0;
-	// Aerial kick timer (seconds inside aerial_kick state). Hard cap so the
-	// kick pose doesn't persist across long falls — after cap, state returns
-	// to airborne so wall_kick / ledge_grab can resume.
-	private aerialKickT = 0;
 	// Landing-squash decaying timer (seconds). Multiplies visual scale.y briefly.
 	private landingSquashT = 0;
 	private groundPoundStartT = 0;
-	// Seconds since the current state was entered. Reset each time state
-	// changes (detected in updateVisuals). Used for phase-based rotation
-	// curves (side_flip roll, triple/backflip somersault).
-	private stateTime = 0;
-	private prevVisState: PlayerState = "airborne";
-
-	// Latched at takeoff/trigger, snapshotted into landingStyle on touchdown
-	// so recovery pose + duration can be per-move without extra state cases.
-	private moveVariant: MoveVariant | null = null;
-	private landingStyle: MoveVariant | null = null;
-	private landingStyleT = 0;
 
 	// Visual state
 	private pitchAngle = 0; // accumulated flip rotation (radians)
@@ -303,9 +243,6 @@ export class Player {
 		this.skidStartPending = false;
 		this.landingSquashT = 0;
 		this.groundPoundStartT = 0;
-		this.punchT = 0;
-		this.sweepT = 0;
-		this.aerialKickT = 0;
 		this.state = "airborne";
 	}
 
@@ -315,10 +252,6 @@ export class Player {
 		this.accumTime += dt;
 		if (this.landingSquashT > 0)
 			this.landingSquashT = Math.max(0, this.landingSquashT - dt);
-		if (this.landingStyleT > 0) {
-			this.landingStyleT = Math.max(0, this.landingStyleT - dt);
-			if (this.landingStyleT === 0) this.landingStyle = null;
-		}
 
 		// Query slope/surface FIRST so this frame's movement knows about it.
 		this.surface = this.grounded
@@ -327,15 +260,8 @@ export class Player {
 		const ny = Math.max(-1, Math.min(1, this.slopeNormal.y));
 		this.slopeAngleDeg = Math.acos(ny) * (180 / Math.PI);
 
-		// Handle ledge-hang as a separate mini state machine. Climb variant
-		// states also route here so the animation block can complete before
-		// transitioning out.
-		if (
-			this.state === "ledge_hang" ||
-			this.state === "ledge_climb_fast" ||
-			this.state === "ledge_climb_slow" ||
-			this.state === "ledge_climb_down"
-		) {
+		// Handle ledge-hang as a separate mini state machine.
+		if (this.state === "ledge_hang") {
 			this.handleLedgeHang(input, physics, dt);
 			return;
 		}
@@ -346,6 +272,10 @@ export class Player {
 		const sy = Math.sin(input.cameraYaw);
 		const mx = input.moveX * cy + input.moveZ * sy;
 		const mz = -input.moveX * sy + input.moveZ * cy;
+
+		const speedTarget = config.moveSpeed;
+		const targetX = mx * speedTarget;
+		const targetZ = mz * speedTarget;
 
 		const hasInput = Math.abs(mx) > 0.01 || Math.abs(mz) > 0.01;
 		const onIce = this.surface === "ice";
@@ -368,34 +298,9 @@ export class Player {
 			Math.hypot(this.velocity.x, this.velocity.z) > 4 &&
 			this.state !== "crouch_slide";
 
-		// Crouch + analog tilt at low ground speed → crawl. Loses to crouch_slide
-		// at higher speeds (M64 same: butt-slide overrides crawl when running).
-		const wantsCrawl =
-			this.grounded &&
-			input.crouchHeld &&
-			hasInput &&
-			Math.hypot(this.velocity.x, this.velocity.z) < 4 &&
-			!slopeTooSteep &&
-			!wantsCrouchSlide &&
-			!wantsDashSlide &&
-			this.state !== "stomach_slide" &&
-			this.state !== "skid" &&
-			this.state !== "punch_1" &&
-			this.state !== "punch_2" &&
-			this.state !== "kick";
-
 		// Update state based on grounded context.
 		if (this.grounded) {
-			// Punch / sweep states own their own lifecycle — the per-state ticker
-			// blocks below transition them out. Don't clobber them here.
-			const inPunchOrSweep =
-				this.state === "punch_1" ||
-				this.state === "punch_2" ||
-				this.state === "kick" ||
-				this.state === "sweep_kick";
-			if (inPunchOrSweep) {
-				// no-op — leave state alone
-			} else if (slopeTooSteep) {
+			if (slopeTooSteep) {
 				this.state = "slope_slide";
 			} else if (
 				wantsCrouchSlide ||
@@ -406,28 +311,13 @@ export class Player {
 					input.crouchHeld &&
 					Math.hypot(this.velocity.x, this.velocity.z) > 0.5;
 				this.state = sliding ? "crouch_slide" : "grounded";
-			} else if (this.state === "stomach_slide") {
-				// Dive-landing slide: stays until lateral drops below threshold.
-				// No crouch-hold requirement — it's a recovery, not voluntary.
-				const sliding = Math.hypot(this.velocity.x, this.velocity.z) > 1.5;
-				if (!sliding) this.state = "grounded";
 			} else if (this.state === "skid") {
 				this.skidT += dt;
 				if (this.skidT >= config.skidDurationMs / 1000) this.state = "grounded";
-			} else if (this.state === "crawl" || wantsCrawl) {
-				// Stays in crawl as long as Z + analog held; otherwise back to idle.
-				this.state =
-					input.crouchHeld && hasInput ? "crawl" : "grounded";
 			} else {
 				this.state = "grounded";
 			}
 		}
-
-		// speedTarget depends on final state — crawl uses its own slow target.
-		const speedTarget =
-			this.state === "crawl" ? config.crawlSpeed : config.moveSpeed;
-		const targetX = mx * speedTarget;
-		const targetZ = mz * speedTarget;
 
 		// Horizontal accel/decel. Locked states keep their momentum.
 		const momentumLocked =
@@ -437,27 +327,15 @@ export class Player {
 					this.state === "side_flip" ||
 					this.state === "dive" ||
 					this.state === "ground_pound_start" ||
-					this.state === "ground_pound" ||
-					this.state === "aerial_kick")) ||
+					this.state === "ground_pound")) ||
 			this.state === "slope_slide" ||
 			this.state === "crouch_slide" ||
-			this.state === "stomach_slide" ||
-			this.state === "skid" ||
-			// Punch states freeze player input — XZ decay handled in punch handler.
-			this.state === "punch_1" ||
-			this.state === "punch_2" ||
-			this.state === "kick" ||
-			// Sweep kick: locked in place, only yaw spins.
-			this.state === "sweep_kick";
+			this.state === "skid";
 
 		let groundRate: number;
-		if (this.state === "crawl") {
-			groundRate = config.crawlAccel;
-		} else if (hasInput) {
+		if (hasInput)
 			groundRate = onIce ? config.accel * config.iceFriction : config.accel;
-		} else {
-			groundRate = onIce ? config.decel * config.iceFriction : config.decel;
-		}
+		else groundRate = onIce ? config.decel * config.iceFriction : config.decel;
 		const accelRate = this.grounded
 			? groundRate
 			: config.accel * config.airControl;
@@ -520,69 +398,6 @@ export class Player {
 				this.velocity.z += gAlong.z * dt * 0.7;
 			}
 		}
-		// Stomach-slide: belly-drag after dive landing. Higher friction than the
-		// butt slide since the whole body is on the ground.
-		if (this.state === "stomach_slide") {
-			this.velocity.x = approach(this.velocity.x, 0, 8 * dt);
-			this.velocity.z = approach(this.velocity.z, 0, 8 * dt);
-		}
-		// Punch combo: tick timer, decay XZ slowly, auto-exit at end of state.
-		// Phase encoded in state name (punch_1 → punch_2 → kick).
-		if (
-			this.state === "punch_1" ||
-			this.state === "punch_2" ||
-			this.state === "kick"
-		) {
-			this.punchT += dt;
-			this.velocity.x = approach(this.velocity.x, 0, config.punchDecel * dt);
-			this.velocity.z = approach(this.velocity.z, 0, config.punchDecel * dt);
-			const total =
-				this.state === "punch_1"
-					? (config.punch1ActiveMs + config.punch1RecoveryMs) / 1000
-					: this.state === "punch_2"
-						? (config.punch2ActiveMs + config.punch2RecoveryMs) / 1000
-						: (config.kickActiveMs + config.kickRecoveryMs) / 1000;
-			if (this.punchT >= total) {
-				// Recovery window over — return to grounded with short land-style.
-				this.state = "grounded";
-				this.punchT = 0;
-				this.landingStyle = "punch";
-				this.landingStyleT = config.landPunchMs / 1000;
-				this.moveVariant = null;
-			}
-		}
-		// Sweep kick tick: frozen XZ, ticks timer, auto-exits at end. Yaw spin
-		// is driven from sweepT in computePose.
-		if (this.state === "sweep_kick") {
-			this.sweepT += dt;
-			this.velocity.x = 0;
-			this.velocity.z = 0;
-			const total =
-				(config.sweepStartupMs +
-					config.sweepActiveMs +
-					config.sweepRecoveryMs) /
-				1000;
-			if (this.sweepT >= total) {
-				this.state = "grounded";
-				this.sweepT = 0;
-				this.landingStyle = "sweep_kick";
-				this.landingStyleT = config.landSweepMs / 1000;
-				this.moveVariant = null;
-			}
-		}
-		// Aerial kick tick: gravity drives the body normally, the kick is just
-		// a state lock with a duration cap. Landing handler clears state and
-		// snapshots landingStyle separately.
-		if (this.state === "aerial_kick") {
-			this.aerialKickT += dt;
-			if (this.aerialKickT >= config.aerialKickDurationMs / 1000) {
-				this.state = "airborne";
-				this.aerialKickT = 0;
-				// Keep moveVariant so landingStyle still latches as aerial_kick.
-			}
-		} else {
-			this.aerialKickT = 0;
-		}
 
 		this.timeSinceGrounded += dt;
 		if (this.grounded) {
@@ -631,59 +446,16 @@ export class Player {
 			haptic(12);
 		}
 
-		// Grounded action button = M64 B button. Routing matches M64:
-		//   crouchHeld          → sweep kick / breakdance
-		//   speed ≥ threshold   → dive (run + B)
-		//   otherwise           → punch combo (chain-aware)
-		if (input.actionPressed && this.grounded) {
-			const inPunchState =
-				this.state === "punch_1" ||
-				this.state === "punch_2" ||
-				this.state === "kick";
-			if (input.crouchHeld) {
-				// Z + action grounded → sweep kick. Allowed from idle crouch,
-				// crawl, and even mid-punch (cancel into sweep).
-				if (this.state !== "sweep_kick") {
-					this.executeSweepKick();
-					haptic(15);
-				}
-			} else if (horizSpeed >= config.diveSpeedThreshold && !inPunchState) {
-				// Ground dive: run + B. Mirrors aerial dive impulse but launches us
-				// off the ground so existing dive→stomach_slide landing path runs.
-				this.executeDive(horizSpeed, mx, mz, true);
-				haptic(15);
-			} else {
-				// Punch combo. Chain only after the active phase closes — forces
-				// the player to commit one swing before queuing the next.
-				if (this.state === "punch_1") {
-					if (this.punchT >= config.punch1ActiveMs / 1000)
-						this.executePunch(2);
-				} else if (this.state === "punch_2") {
-					if (this.punchT >= config.punch2ActiveMs / 1000)
-						this.executePunch(3);
-				} else if (this.state !== "kick") {
-					this.executePunch(1);
-				}
-				haptic(8);
-			}
-		}
-
-		// Aerial actions (ground pound / dive / aerial kick). M64 mapping:
-		//   Z (crouch press)                 → ground pound
-		//   B (action) + speed ≥ threshold   → dive
-		//   B (action) + speed < threshold   → aerial kick
+		// Aerial actions (ground pound / dive)
 		if (
 			!this.grounded &&
 			this.state !== "ground_pound_start" &&
 			this.state !== "ground_pound" &&
-			this.state !== "dive" &&
-			this.state !== "aerial_kick"
+			this.state !== "dive"
 		) {
-			const triggerGP = input.crouchPressed;
-			const triggerDive =
-				input.actionPressed && horizSpeed >= config.diveSpeedThreshold;
-			const triggerAerialKick =
-				input.actionPressed && horizSpeed < config.diveSpeedThreshold;
+			const triggerGP =
+				input.crouchPressed || (input.actionPressed && horizSpeed < 2.5);
+			const triggerDive = input.actionPressed && horizSpeed >= 2.5;
 			if (triggerGP) {
 				this.velocity.x *= 0.18;
 				this.velocity.z *= 0.18;
@@ -694,15 +466,19 @@ export class Player {
 				this.state = "ground_pound_start";
 				this.groundPoundStartT = 0;
 				this.jumpChain = 0;
-				this.moveVariant = "ground_pound";
 				this.setFacing(this.facingYaw);
 				haptic(15);
 			} else if (triggerDive) {
-				this.executeDive(horizSpeed, mx, mz, false);
+				const mag = Math.max(horizSpeed, 1);
+				const dx = this.velocity.x / mag;
+				const dz = this.velocity.z / mag;
+				this.velocity.x = dx * config.diveVelXZ;
+				this.velocity.z = dz * config.diveVelXZ;
+				this.velocity.y = config.diveVelY;
+				this.state = "dive";
+				this.jumpChain = 0;
+				this.snapFacingToVelocity();
 				haptic(15);
-			} else if (triggerAerialKick) {
-				this.executeAerialKick();
-				haptic(12);
 			}
 		}
 
@@ -790,27 +566,8 @@ export class Player {
 				this.timeSinceLanding = 0;
 				this.chainOnLanding = this.jumpChain;
 				this.jumpChain = 0;
-				// Remember whether this was a dive-landing before we overwrite
-				// state — routes into stomach_slide for the drag recovery.
-				const wasDive = this.state === "dive";
-				// Snapshot moveVariant into landingStyle so recovery pose has the
-				// right duration and per-style look. Cleared when the window
-				// decays to 0 in step().
-				if (this.moveVariant) {
-					this.landingStyle = this.moveVariant;
-					this.landingStyleT = landingDurationFor(this.moveVariant);
-					this.moveVariant = null;
-				}
-				// Dive with residual lateral velocity becomes a belly drag.
-				// Otherwise just grounded; next tick re-evaluates normally.
-				if (
-					wasDive &&
-					Math.hypot(this.velocity.x, this.velocity.z) > 1.5
-				) {
-					this.state = "stomach_slide";
-				} else {
-					this.state = "grounded";
-				}
+				// State will be re-evaluated top-of-loop next tick
+				this.state = "grounded";
 			} else if (this.velocity.y < 0) {
 				this.velocity.y = 0;
 			}
@@ -919,13 +676,7 @@ export class Player {
 		// Climb animation in progress: interpolate + skip rest of logic.
 		if (this.climbT >= 0) {
 			this.climbT += dt;
-			const durMs =
-				this.climbVariant === "fast"
-					? config.ledgeClimbFastMs
-					: this.climbVariant === "down"
-						? config.ledgeClimbDownMs
-						: config.ledgeClimbSlowMs;
-			const durSec = durMs / 1000;
+			const durSec = config.ledgeClimbDurationMs / 1000;
 			const t = Math.min(1, this.climbT / durSec);
 			const eased = t * t * (3 - 2 * t);
 			const x =
@@ -937,17 +688,13 @@ export class Player {
 			this.body.setTranslation({ x, y, z }, true);
 			this.mesh.position.set(x, y, z);
 			if (t >= 1) {
-				// Fast + slow end on top (grounded). Climb-down ends airborne so
-				// the player falls naturally from below the ledge face.
-				this.state =
-					this.climbVariant === "down" ? "airborne" : "grounded";
+				this.state = "grounded";
 				this.ledgePos = null;
 				this.ledgeNormal = null;
 				this.ledgeBodyHandle = null;
 				this.climbT = -1;
 				this.climbIntentT = 0;
 				this.ledgeGrabCooldown = 0.3;
-				if (this.climbVariant === "down") this.velocity.y = 0;
 			}
 			this.updateVisuals(dt);
 			return;
@@ -1020,51 +767,36 @@ export class Player {
 		this.velocity.set(0, 0, 0);
 		this.mesh.position.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
 
-		// M64-style triggers. Fast climb (A-press) is instant; slow climb
-		// (forward-stick) requires hangMin; climb-down (back-stick + crouch)
-		// descends to airborne below the ledge face; crouch-tap drops plain.
-		const hangMinSec = config.ledgeHangMinMs / 1000;
-		const candidateUp = {
-			x: this.ledgePos.x + intoWall.x * 0.7,
-			y: this.ledgePos.y + HEIGHT + 0.3,
-			z: this.ledgePos.z + intoWall.z * 0.7,
-		};
-		if (input.jumpPressed) {
-			if (verifyClearanceAbove(physics, this.collider, candidateUp)) {
-				this.climbVariant = "fast";
-				this.state = "ledge_climb_fast";
+		const climbCommitSec = config.ledgeClimbCommitMs / 1000;
+		if (this.climbIntentT >= climbCommitSec) {
+			// Verify the pull-up destination is actually free of geometry (ceiling,
+			// thick ledge lip, corner wall). Skip climb if blocked — the player can
+			// still shimmy sideways until they find a viable spot.
+			const candidateEnd = {
+				x: this.ledgePos.x + intoWall.x * 0.7,
+				y: this.ledgePos.y + HEIGHT + 0.3,
+				z: this.ledgePos.z + intoWall.z * 0.7,
+			};
+			if (verifyClearanceAbove(physics, this.collider, candidateEnd)) {
 				this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
-				this.climbEnd.set(candidateUp.x, candidateUp.y, candidateUp.z);
+				this.climbEnd.set(candidateEnd.x, candidateEnd.y, candidateEnd.z);
 				this.climbT = 0;
 				this.climbIntentT = 0;
 				haptic(20);
-			}
-		} else if (wantsClimb && this.climbIntentT >= hangMinSec) {
-			if (verifyClearanceAbove(physics, this.collider, candidateUp)) {
-				this.climbVariant = "slow";
-				this.state = "ledge_climb_slow";
-				this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
-				this.climbEnd.set(candidateUp.x, candidateUp.y, candidateUp.z);
-				this.climbT = 0;
-				this.climbIntentT = 0;
-				haptic(15);
 			} else {
+				// Blocked — reset intent so user can retry (e.g. after shimmy to cleaner spot)
 				this.climbIntentT = 0;
 			}
-		} else if (wantsDrop && input.crouchHeld) {
-			// Climb-down: descend past the ledge face. Ends airborne so the
-			// player falls naturally from the lower position.
-			this.climbVariant = "down";
-			this.state = "ledge_climb_down";
-			this.climbStart.set(this.ledgePos.x, this.ledgePos.y, this.ledgePos.z);
-			this.climbEnd.set(
-				this.ledgePos.x - intoWall.x * 0.3,
-				this.ledgePos.y - config.ledgeClimbDownDropDist,
-				this.ledgePos.z - intoWall.z * 0.3,
-			);
-			this.climbT = 0;
+		} else if (input.jumpPressed) {
+			this.velocity.y = config.jumpVel;
+			this.state = "airborne";
+			this.ledgePos = null;
+			this.ledgeNormal = null;
+			this.ledgeBodyHandle = null;
+			this.ledgeGrabCooldown = 0.3;
 			this.climbIntentT = 0;
-			haptic(10);
+			this.jumpChain = 1;
+			haptic(15);
 		} else if (input.crouchPressed || wantsDrop) {
 			this.state = "airborne";
 			this.ledgePos = null;
@@ -1077,12 +809,6 @@ export class Player {
 	}
 
 	private updateVisuals(dt: number): void {
-		if (this.state !== this.prevVisState) {
-			this.stateTime = 0;
-			this.prevVisState = this.state;
-		} else {
-			this.stateTime += dt;
-		}
 		const pose = computePose({
 			state: this.state,
 			dt,
@@ -1097,32 +823,17 @@ export class Player {
 			crouching: this.crouching,
 			currentScaleY: this.visualGroup.scale.y,
 			landingSquashT: this.landingSquashT,
-			stateTime: this.stateTime,
-			landingStyle: this.landingStyle,
-			landingStyleT: this.landingStyleT,
 		});
 		this.facingYaw = pose.facingYaw;
 		this.pitchAngle = pose.pitchAngle;
 		this.yawSpin = pose.yawSpin;
-		this.visualGroup.rotation.set(
-			pose.renderPitch,
-			pose.renderYaw,
-			pose.renderRoll,
-			"YXZ",
-		);
+		this.visualGroup.rotation.set(pose.renderPitch, pose.renderYaw, 0, "YXZ");
 		this.visualGroup.scale.y = pose.scaleY;
 		this.visualGroup.position.y = pose.offsetY;
 
 		// Procedural limb posing — lerp each mitten/foot toward state target.
 		const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-		const targets = computeLimbs({
-			state: this.state,
-			horizSpeed,
-			accumTime: this.accumTime,
-			stateTime: this.stateTime,
-			shimmyDir: this.shimmyDir,
-			jumpChain: this.jumpChain,
-		});
+		const targets = computeLimbs(this.state, horizSpeed, this.accumTime);
 		const limbLerp = Math.min(1, dt * 12);
 		this.limbs.armL.position.lerp(targets.armL, limbLerp);
 		this.limbs.armR.position.lerp(targets.armR, limbLerp);
@@ -1174,7 +885,6 @@ export class Player {
 		this.wallNormal = null;
 		this.timeSinceWall = 999;
 		this.targetYaw = result.targetYaw;
-		this.moveVariant = "wall_kick";
 	}
 
 	private executeJump(
@@ -1202,86 +912,12 @@ export class Player {
 		this.velocity.set(result.velocity.x, result.velocity.y, result.velocity.z);
 		this.state = result.state;
 		this.jumpChain = result.jumpChain;
-		this.moveVariant = result.moveVariant;
 
 		if (result.facing === "snap-to-velocity") this.snapFacingToVelocity();
 		else if (typeof result.facing === "object")
 			this.setFacing(result.facing.yaw);
 
 		this.timeSinceLanding = 999;
-	}
-
-	private executeDive(
-		horizSpeed: number,
-		mx: number,
-		mz: number,
-		fromGround: boolean,
-	): void {
-		const mag = Math.max(horizSpeed, 1);
-		let dx = this.velocity.x / mag;
-		let dz = this.velocity.z / mag;
-		if (Math.hypot(dx, dz) < 0.5) {
-			const inputMag = Math.hypot(mx, mz);
-			if (inputMag > 0.1) {
-				dx = mx / inputMag;
-				dz = mz / inputMag;
-			}
-		}
-		this.velocity.x = dx * config.diveVelXZ;
-		this.velocity.z = dz * config.diveVelXZ;
-		if (fromGround) {
-			// Small upward kick so the dive actually leaves the floor and follows
-			// an arc into the stomach-slide landing path. Without it we'd just
-			// scrape forward and never trigger the airborne→dive→stomach pipeline.
-			this.velocity.y = Math.max(this.velocity.y, 4);
-			this.grounded = false;
-			this.timeSinceGrounded = 999;
-		} else {
-			this.velocity.y = config.diveVelY;
-		}
-		this.state = "dive";
-		this.jumpChain = 0;
-		this.moveVariant = "dive";
-		this.snapFacingToVelocity();
-	}
-
-	private executePunch(phase: 1 | 2 | 3): void {
-		// Cap forward velocity on entry. M64 ACT_MOVE_PUNCHING caps fVel at 6 u/f.
-		const sp = Math.hypot(this.velocity.x, this.velocity.z);
-		if (sp > config.punchEntryVelCap) {
-			const k = config.punchEntryVelCap / sp;
-			this.velocity.x *= k;
-			this.velocity.z *= k;
-		}
-		this.state = phase === 1 ? "punch_1" : phase === 2 ? "punch_2" : "kick";
-		this.punchT = 0;
-		this.moveVariant = "punch";
-		// Lock facing for the duration. The player aims by walking briefly before
-		// the punch, then commits — same feel as M64.
-		this.setFacing(this.facingYaw);
-	}
-
-	private executeSweepKick(): void {
-		this.velocity.x = 0;
-		this.velocity.z = 0;
-		this.state = "sweep_kick";
-		this.sweepT = 0;
-		this.moveVariant = "sweep_kick";
-		// Cancel any pending punch chain.
-		this.punchT = 0;
-		this.setFacing(this.facingYaw);
-	}
-
-	private executeAerialKick(): void {
-		// M64 act_jump_kick: forward velocity loses ~1 u/f on entry. Approximate
-		// with a 0.95 multiplier (3 u/f → 2.85 u/f; not material, just removes
-		// the perfect-conservation feel). Vertical velocity is preserved.
-		this.velocity.x *= 0.95;
-		this.velocity.z *= 0.95;
-		this.state = "aerial_kick";
-		this.aerialKickT = 0;
-		this.moveVariant = "aerial_kick";
-		this.setFacing(this.facingYaw);
 	}
 
 	/**
@@ -1421,11 +1057,6 @@ export class Player {
 			this.state === "dive" ||
 			this.state === "ground_pound_start" ||
 			this.state === "ground_pound" ||
-			this.state === "punch_1" ||
-			this.state === "punch_2" ||
-			this.state === "kick" ||
-			this.state === "sweep_kick" ||
-			this.state === "aerial_kick" ||
 			(this.state === "airborne" && this.jumpChain === 3)
 		);
 	}
@@ -1477,34 +1108,5 @@ function haptic(ms: number): void {
 		typeof navigator.vibrate === "function"
 	) {
 		navigator.vibrate(ms);
-	}
-}
-
-function landingDurationFor(variant: MoveVariant): number {
-	switch (variant) {
-		case "single":
-			return config.landSingleMs / 1000;
-		case "double":
-			return config.landDoubleMs / 1000;
-		case "triple":
-			return config.landTripleMs / 1000;
-		case "backflip":
-			return config.landBackflipMs / 1000;
-		case "side_flip":
-			return config.landSideFlipMs / 1000;
-		case "long_jump":
-			return config.landLongJumpMs / 1000;
-		case "dive":
-			return config.landDiveMs / 1000;
-		case "wall_kick":
-			return config.landWallKickMs / 1000;
-		case "ground_pound":
-			return config.landGroundPoundMs / 1000;
-		case "punch":
-			return config.landPunchMs / 1000;
-		case "sweep_kick":
-			return config.landSweepMs / 1000;
-		case "aerial_kick":
-			return config.landAerialKickMs / 1000;
 	}
 }

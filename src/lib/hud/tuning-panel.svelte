@@ -54,20 +54,7 @@
 		{ key: 'ledgeClimbInputDeadzone', min: 0.1, max: 1, step: 0.05 },
 		{ key: 'ledgeClimbCommitMs', min: 0, max: 500, step: 10 },
 		{ key: 'ledgeClimbDurationMs', min: 100, max: 1000, step: 20 },
-		{ key: 'ledgeHangMinMs', min: 0, max: 1000, step: 20 },
-		{ key: 'ledgeClimbFastMs', min: 100, max: 800, step: 20 },
-		{ key: 'ledgeClimbSlowMs', min: 200, max: 1200, step: 20 },
-		{ key: 'ledgeClimbDownMs', min: 150, max: 800, step: 20 },
-		{ key: 'ledgeClimbDownDropDist', min: 0.5, max: 3, step: 0.1 },
 		{ key: 'sideFlipVelXZ', min: 0, max: 15, step: 0.1 },
-		{ key: 'sideFlipRotationDuration', min: 0.1, max: 1.2, step: 0.05 },
-		{ key: 'sideFlipBodyLeanDeg', min: -30, max: 60, step: 1 },
-		{ key: 'sideFlipArmSpinRate', min: 0.5, max: 12, step: 0.25 },
-		{ key: 'shimmyHandCycleHz', min: 0.5, max: 5, step: 0.1 },
-		{ key: 'shimmyHandLift', min: 0, max: 0.4, step: 0.01 },
-		{ key: 'shimmyHandReach', min: 0, max: 0.5, step: 0.02 },
-		{ key: 'tripleRotationDuration', min: 0.2, max: 1.5, step: 0.05 },
-		{ key: 'backflipRotationDuration', min: 0.2, max: 1.5, step: 0.05 },
 		{ key: 'camLookAheadDist', min: 0, max: 8, step: 0.1 },
 		{ key: 'camLookAheadSpeedRef', min: 2, max: 20, step: 0.5 },
 		{ key: 'camYStabilizeMs', min: 0, max: 1000, step: 10 },
@@ -135,14 +122,6 @@
 		config.diveVelY = 0;
 		config.diveVelXZ = 14.4;
 		config.sideFlipVelXZ = 2.4;
-		config.sideFlipRotationDuration = 0.5;
-		config.sideFlipBodyLeanDeg = 20;
-		config.sideFlipArmSpinRate = 4;
-		config.shimmyHandCycleHz = 2;
-		config.shimmyHandLift = 0.18;
-		config.shimmyHandReach = 0.2;
-		config.tripleRotationDuration = 0.55;
-		config.backflipRotationDuration = 0.7;
 		config.camYawSensitivity = 0.006;
 		config.camPitchSensitivity = 0.004;
 		config.camDistance = 10;
@@ -185,13 +164,8 @@
 		config.ledgeShimmyDeadzone = 0.3;
 		config.ledgeClimbInputDeadzone = 0.6;
 		config.ledgeClimbCommitMs = 120;
-		config.ledgePoseDeg = 0;
+		config.ledgePoseDeg = -30;
 		config.ledgeClimbDurationMs = 420;
-		config.ledgeHangMinMs = 333;
-		config.ledgeClimbFastMs = 300;
-		config.ledgeClimbSlowMs = 600;
-		config.ledgeClimbDownMs = 400;
-		config.ledgeClimbDownDropDist = 1.6;
 		config.wallSlidePoseDeg = 22;
 		config.poseLerpRate = 8;
 		config.sameWallLockoutMs = 500;

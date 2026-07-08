@@ -1,4 +1,4 @@
-import type { MoveVariant, PlayerState } from './player';
+import type { PlayerState } from './player';
 import type { WallNormal } from './player-queries';
 import { config } from './config.svelte';
 
@@ -9,7 +9,6 @@ export type JumpOutcome = {
 	state: PlayerState;
 	jumpChain: number;
 	facing: FacingUpdate;
-	moveVariant: MoveVariant;
 };
 
 export type JumpContext = {
@@ -60,8 +59,7 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 			},
 			state: 'long_jump',
 			jumpChain: 0,
-			facing: 'snap-to-velocity',
-			moveVariant: 'long_jump'
+			facing: 'snap-to-velocity'
 		};
 	}
 	if (crouchHeld) {
@@ -75,8 +73,7 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 			},
 			state: 'backflip',
 			jumpChain: 0,
-			facing: { yaw: facingYaw },
-			moveVariant: 'backflip'
+			facing: { yaw: facingYaw }
 		};
 	}
 	// M64 side flip is the A-press during the turnaround/skid state, not a free
@@ -95,8 +92,7 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 			},
 			state: 'side_flip',
 			jumpChain: 0,
-			facing: 'snap-to-velocity',
-			moveVariant: 'side_flip'
+			facing: 'snap-to-velocity'
 		};
 	}
 	if (canChain) {
@@ -106,8 +102,7 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 				velocity: { x: velocity.x, y: config.tripleJumpVel, z: velocity.z },
 				state: 'airborne',
 				jumpChain: 3,
-				facing: 'snap-to-velocity',
-				moveVariant: 'triple'
+				facing: 'snap-to-velocity'
 			};
 		}
 		return {
@@ -118,8 +113,7 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 			},
 			state: 'airborne',
 			jumpChain: chain,
-			facing: 'keep',
-			moveVariant: chain >= 2 ? 'double' : 'single'
+			facing: 'keep'
 		};
 	}
 	return {
@@ -130,8 +124,7 @@ export function computeJump(ctx: JumpContext): JumpOutcome {
 		},
 		state: 'airborne',
 		jumpChain: 1,
-		facing: 'keep',
-		moveVariant: 'single'
+		facing: 'keep'
 	};
 }
 

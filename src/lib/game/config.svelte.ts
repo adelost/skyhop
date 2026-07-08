@@ -56,28 +56,6 @@ export const config = $state({
 	backflipVelXZ: -4.8,
 	sideFlipVelY: 18.6,
 	sideFlipVelXZ: 2.4, // M64: 8 u/f = 2.4 m/s. Own setting, decoupled from long jump.
-	// Side flip visual: M64 ACT_SIDE_FLIP flips render yaw 180° (angle[1]
-	// += 0x8000) and plays MARIO_ANIM_SLIDEFLIP. Without skeletal anim we
-	// approximate with: body stays mostly upright (small lean), arms do a
-	// full windmill, legs arc out. Primary flip illusion comes from the
-	// yaw-flip + limb choreography, not root rotation.
-	sideFlipRotationDuration: 0.5,
-	sideFlipBodyLeanDeg: 20,
-	sideFlipArmSpinRate: 4, // arm windmill cycles per second
-	// Pirouette around vertical axis layered on top of the cartwheel + 180° flip.
-	// M64's MARIO_ANIM_SLIDEFLIP drives this dynamically via skeletal anim; we
-	// reproduce it as a yaw-spin that decays over the first half of the move so
-	// the body reads as "spinning" rather than statically flipped.
-	sideFlipYawSpinRate: 8,
-	// Shimmy hand cycle: alternating release/re-grab while moving along ledge.
-	shimmyHandCycleHz: 2,
-	shimmyHandLift: 0.18,
-	shimmyHandReach: 0.2,
-	// Triple jump and backflip rotation: phase-based (easeInOutSine) instead
-	// of linear rate, so the somersault starts and ends softly — reads as a
-	// choreographed flip rather than a constant tumble.
-	tripleRotationDuration: 0.55,
-	backflipRotationDuration: 0.7,
 	wallKickVelY: 18.6,
 	wallKickVelXZ: 7.2,
 	// M64 wall-kick window = 2 frames "instant" (ACT_AIR_HIT_WALL) + 5 frames
@@ -100,46 +78,6 @@ export const config = $state({
 	groundPoundImpactSquashMs: 220,
 	diveVelY: 0,
 	diveVelXZ: 14.4,
-	// Threshold for action-button kick-vs-dive split. M64 act_jump_kick check:
-	// `forwardVel > 28.0f` → ACT_DIVE, else ACT_JUMP_KICK. 28 u/f = 8.4 m/s.
-	// Same threshold drives ground-dive vs punch-combo.
-	diveSpeedThreshold: 8.4,
-
-	// Punch combo (M64 act_punching / act_move_punching / mario_update_punch_sequence).
-	// Three-hit sequence: punch1 → punch2 → kick, each entered by re-tapping action
-	// inside the combo window after the active phase. Outside the window, action
-	// starts a fresh punch1. Entry caps forward velocity (M64 caps at 6 u/f for
-	// moving punch); during the move XZ decays slowly and facing is locked.
-	punch1ActiveMs: 200, // hand extends, "active hit" window
-	punch1RecoveryMs: 167, // retract — combo input must arrive before this ends
-	punch2ActiveMs: 200,
-	punch2RecoveryMs: 167,
-	kickActiveMs: 233, // M64 kick is the longest of the three
-	kickRecoveryMs: 200,
-	punchEntryVelCap: 1.8, // m/s — M64 ACT_MOVE_PUNCHING fVel cap = 6 u/f = 1.8 m/s
-	punchDecel: 6, // m/s² — XZ decay during punch states
-	landPunchMs: 80,
-
-	// Crawl (M64 act_crawling). Z held + analog tilt at low speed. Slow,
-	// low-profile locomotion that can squeeze through low passages. M64
-	// crawl moves at ~6 u/f = 1.8 m/s; we round to 2.0 for slightly more
-	// responsive feel without breaking M64 character.
-	crawlSpeed: 2.0,
-	crawlAccel: 15,
-
-	// Sweep kick / breakdance (M64 mario_update_punch_sequence case 9, set on
-	// Z + B from the crouch). Mario plants hands and sweeps a leg in a
-	// horizontal 360° spin. Frozen XZ — pure rotation in place.
-	sweepStartupMs: 67,
-	sweepActiveMs: 200,
-	sweepRecoveryMs: 133,
-	landSweepMs: 100,
-
-	// Aerial kick (M64 act_jump_kick). Press B in air at low forward speed for
-	// a leg-out spin kick; high speed routes to dive instead. Animation runs
-	// to a hard cap or until landing, whichever comes first.
-	aerialKickDurationMs: 300,
-	landAerialKickMs: 120,
 
 	// Camera. M64-tuned: authentic Lakitu feel. Speed-boost off by default so
 	// the camera doesn't "breathe" when moving; look-ahead is subtle.
@@ -216,16 +154,8 @@ export const config = $state({
 	ledgeShimmyDeadzone: 0.3,
 	ledgeClimbInputDeadzone: 0.6,
 	ledgeClimbCommitMs: 120, // require a short deliberate hold before pull-up
-	ledgePoseDeg: 0, // body hangs straight; hands handle the grab visually
-	ledgeClimbDurationMs: 420, // smooth pull-up animation length (legacy default)
-	// M64-style climb variants: fast = A-press (short), slow = forward-stick
-	// after hangMin (regular), down = back-stick + crouch (descend to airborne
-	// below the ledge face).
-	ledgeHangMinMs: 333, // 10 frames at 30fps — forward-stick slow climb gate
-	ledgeClimbFastMs: 300,
-	ledgeClimbSlowMs: 600,
-	ledgeClimbDownMs: 400,
-	ledgeClimbDownDropDist: 1.6, // meters descended during climb-down
+	ledgePoseDeg: -30, // head tilted INTO wall (hands grabbing)
+	ledgeClimbDurationMs: 420, // smooth pull-up animation length
 
 	// Wall-slide pose. Legs-into-wall, head-away: POSITIVE pitch (with nose facing
 	// into wall, positive pitch tips head backward = away from wall).
@@ -234,51 +164,8 @@ export const config = $state({
 	// Smoothness of transitions between poses (rad/s toward target).
 	poseLerpRate: 8,
 
-	// Landing recovery durations per move variant (ms). M64 has move-specific
-	// land/recovery animations; we approximate with a short window that holds
-	// a pose override before decaying back to grounded. Latched at touchdown
-	// from moveVariant (takeoff latch).
-	landSingleMs: 120,
-	landDoubleMs: 140,
-	landTripleMs: 220,
-	landBackflipMs: 200,
-	landSideFlipMs: 180,
-	landLongJumpMs: 180,
-	landDiveMs: 260,
-	landWallKickMs: 140,
-	landGroundPoundMs: 220,
-
 	// Wall-kick lockout: can't re-kick the same wall for this duration.
 	sameWallLockoutMs: 500,
-
-	// Camera mode-driven behavior (see SKYHOP-CAMERA-SPEC.md).
-	// Distance baseline for slide_chase (applied on top of the user-driven
-	// cameraDist from wheel). Spec: 8.5-9.0m; we offset from whatever the user
-	// has set rather than hard-overriding so manual zoom still matters.
-	camSlideDistanceAdd: 0.8,
-	// Reclaim: shorter, more assertive than the legacy camRecenterDelayMs.
-	// After this much idle (no drag/wheel), camera starts approaching the
-	// behind-facing goal regardless of drift magnitude.
-	camReclaimDelayMs: 800,
-	// Hysteresis on slide-mode transitions so taps/short slides don't thrash.
-	camSlideHysteresisInMs: 80,
-	camSlideHysteresisOutMs: 120,
-	// Lateral pan: fraction of goal distance that focus shifts along player
-	// facing when camera yaw is off-axis. Replaces velocity-lookahead.
-	camLateralPanMax: 0.15,
-	// Yaw reclaim rates (rad/s). Slide locks behind faster than default.
-	// Scaled down when player is nearly still so a standing player doesn't
-	// get spun around by a persistent reclaim force.
-	camYawFollowDefault: 2.2,
-	camYawFollowSlide: 4.5,
-	camYawFollowStillMult: 0.3,
-	camMovingSpeedThresh: 1.2,
-	// Two-layer smoothing: focus catches up faster than camera body, so
-	// composition reads quickly while the body has physical lag.
-	camFocusFollowH: 20,
-	camFocusFollowV: 6,
-	camPosFollowH: 6,
-	camPosFollowV: 6,
 });
 
 export type Config = typeof config;
